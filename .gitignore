@@ -1,0 +1,6 @@
+__pycache__/
+sbots-env/
+legacy/
+
+*.env
+*.log
