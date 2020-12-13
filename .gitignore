@@ -1,6 +1,8 @@
 __pycache__/
 sbots-env/
 legacy/
+doc/
 
 *.env
 *.log
+*.vscode
