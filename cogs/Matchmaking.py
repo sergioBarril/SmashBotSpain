@@ -1,46 +1,64 @@
 import discord
 import asyncio
 
-from discord.ext import commands
-from .Exceptions import RejectedException, ConfirmationTimeOutException
+from discord.ext import tasks, commands
+from .Exceptions import RejectedException, ConfirmationTimeOutException, AlreadySearchingException
+
+
+TIER_ROLES = ("Tier 1", "Tier 2", "Tier 3", "Tier 4")
+DEV_MODE = True  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
 
 class Matchmaking(commands.Cog):
+    
     def __init__(self, bot):
         self.bot = bot
-        self.search_list = []
+        self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
     
-    def setup_arenas(self, guild):
+    def setup_matchmaking(self, guild, list_message):
         self.guild = guild
+        
         self.arenas =  discord.utils.get(self.guild.categories, name="ARENAS").channels
-        self.arena_status = {f"arena-{i}" : None for i in range(1, len(self.arenas) + 1)}        
+        self.arena_status = {f"arena-{i}" : None for i in range(1, len(self.arenas) + 1)}
+        
+        self.list_message = list_message
     
     @commands.command()
     async def friendlies(self, ctx):
         """
         You can join the list of friendlies with this command.
         """
-        user = ctx.author
+        # Get player and tier
+        player = ctx.author
+        tier = self.get_tier(player)
         
-        # if user in self.search_list:
-            # return await ctx.send(f"Hey {user.mention}, you're already in!")
-        # else:
-        self.search_list.append(user)
+        if not tier:
+            await ctx.send("No tienes Tier... Habla con algún admin para que te asigne una.")
+            return
         
-        await ctx.send(f"Perfecto {user.mention}, te acabo de meter.")
+        # Add them to search
+        try:
+            await self.add_to_search_list(player, tier)
+        except AlreadySearchingException:
+            return await ctx.send(f"Hey {player.mention}, you're already in!")
         
-        while self.is_match_possible():
-            match = self.search_list[:2]
+        await ctx.send(f"Perfecto {player.mention}, te acabo de meter.")        
+        
+        while self.is_match_possible(tier):
+
+            match = self.search_list[tier.name][:2]
 
             player1, player2 = match
             
             # Remove from the list
-            self.search_list.remove(player1)
-            self.search_list.remove(player2)
+            asyncio.gather(*[self.remove_from_search_list(player, tier) for player in match])
 
             # Send DM with confirmation
             confirmation = await self.confirm_match(player1, player2)
             if not confirmation['accepted']:
-                self.search_list.insert(0, confirmation['player_to_reinsert'])
+                player_to_reinsert = confirmation['player_to_reinsert']
+                tier = self.get_tier(player_to_reinsert)
+
+                await self.add_to_search_list(player_to_reinsert, tier, 0)                
                 continue
 
             # Get and lock an arena
@@ -48,9 +66,8 @@ class Matchmaking(commands.Cog):
             self.arena_status[arena.name] = match
 
             #Set Permissions            
-            await arena.set_permissions(self.bot.guild.default_role, read_messages=False, send_messages=False)
-            await arena.set_permissions(match[0], read_messages=True, send_messages=True)
-            await arena.set_permissions(match[1], read_messages=True, send_messages=True)
+            arena_permissions = [arena.set_permissions(player, read_messages=True, send_messages=True) for player in match]
+            await asyncio.gather(*arena_permissions)
             
             # Send invites for faster arena access
             await self.send_invites(arena, player1, player2)
@@ -75,10 +92,30 @@ class Matchmaking(commands.Cog):
             # Delete it
             if arena_to_close:
                 await self.delete_arena(arena_to_close)
-            
+
+    @commands.command()
+    async def cancel(self, ctx):
+        player = ctx.author
+        tier = self.get_tier(player)
+
+        if player in self.search_list[tier.name]:
+            await self.remove_from_search_list(player, tier)
+            await ctx.send(f"Vale {player.mention}, te saco de la cola. ¡Hasta pronto!")
+        else:
+            await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
         
-    def is_match_possible(self):
-        return len(self.search_list) > 1
+    def is_match_possible(self, tier):
+        return len(self.search_list[tier.name]) > 1
+
+    def get_tier(self, player):
+        if isinstance(player, discord.member.Member):
+            member = player
+        else:            
+            member = self.guild.get_member(player.id)        
+        
+        return next((role for role in member.roles if role.name in TIER_ROLES), None)    
+            
+
     
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
@@ -166,17 +203,51 @@ class Matchmaking(commands.Cog):
             return {"accepted": False, "player_to_reinsert": player1 if e.player != player1 else player2}
         return {"accepted": True}
 
+
+    async def send_invites(self, arena, player1, player2):
+        invite_link = await arena.create_invite(max_age=25, max_uses=1, reason="Acceder más rápido al canal")
+        
+        players = player1, player2
+
+        message_tasks = [player.send(f"Listo, dirígete a la #{arena.name}") for player in players]        
+        messages = await asyncio.gather(*message_tasks)
+
+        send_invite_tasks = [player.send(invite_link) for player in players]
+        invite_messages = await asyncio.gather(*send_invite_tasks)
+
+        async def delete_invite(invite_message):
+            await asyncio.sleep(25)
+            await invite_message.delete()
+        
+        delete_invite_tasks = [delete_invite(invite) for invite in invite_messages]
+        asyncio.gather(*delete_invite_tasks)
+
+
     #  ***********************************************
     #           A   R   E   N   A   S
     #  ***********************************************
     
-    async def get_free_arena(self):
-        for arena in self.arenas:
-            if not self.arena_status[arena.name]:
-                return arena
+    async def add_to_search_list(self, player, tier, index = None):
+        if player in self.search_list[tier.name] and not DEV_MODE:
+            raise AlreadySearchingException(player)
+        
+        if index is None:
+            self.search_list[tier.name].append(player)
+        else:
+            self.search_list[tier.name].insert(index, player)
+        
+        asyncio.create_task(self.update_list_message())
+    
+    async def remove_from_search_list(self, player, tier):
+        if not self.search_list[tier.name]:
+            raise Exception()
+        self.search_list[tier.name].remove(player)
+        asyncio.create_task(self.update_list_message())
+        
+        return player
 
-        # No arena available, let's make one
-        return await self.make_arena()
+    async def get_free_arena(self):
+        return next((arena for arena in self.arenas if not arena in self.arena_status[arena.name]), await self.make_arena())
 
     async def make_arena(self):
         arenas_category = discord.utils.get(self.guild.categories, name="ARENAS")        
@@ -200,24 +271,19 @@ class Matchmaking(commands.Cog):
         self.arenas.remove(arena)
         self.arena_status.pop(arena.name, None)
         await arena.delete()
+  
+    # *******************************
+    #           L I S T
+    # *******************************
 
-    async def send_invites(self, arena, player1, player2):
-        invite_link = await arena.create_invite(max_age=25, max_uses=1, reason="Acceder más rápido al canal")
+    async def update_list_message(self):        
+        response = "**__Friendlies list:__**\n"
         
-        players = player1, player2
-
-        message_tasks = [player.send(f"Listo, dirígete a la #{arena.name}") for player in players]        
-        messages = await asyncio.gather(*message_tasks)
-
-        send_invite_tasks = [player.send(invite_link) for player in players]
-        invite_messages = await asyncio.gather(*send_invite_tasks)
-
-        async def delete_invite(invite_message):
-            await asyncio.sleep(25)
-            await invite_message.delete()
+        for tier in TIER_ROLES:
+            players = ", ".join([player.name for player in self.search_list[tier]])
+            response += f"__{tier}__: {players}\n"
         
-        delete_invite_tasks = [delete_invite(invite) for invite in invite_messages]
-        asyncio.gather(*delete_invite_tasks)
+        await self.list_message.edit(content=response)
 
 def setup(bot):
     bot.add_cog(Matchmaking(bot))
