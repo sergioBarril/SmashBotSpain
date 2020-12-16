@@ -56,7 +56,7 @@ class Matchmaking(commands.Cog):
 
         # If .friendlies in #tier-x:
         if tier_num is None:
-            channel_name = ctx.channel.name if ctx.channel else None
+            channel_name = ctx.channel.name if ctx.guild else None
             
             if channel_name in TIER_CHANNEL_NAMES:
                 tier_num = channel_name[-1]
