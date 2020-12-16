@@ -16,3 +16,6 @@ class ConfirmationTimeOutException(Exception):
 
 class TierValidationException(Exception):
     pass
+
+class AlreadyMatchedException(Exception):
+    pass

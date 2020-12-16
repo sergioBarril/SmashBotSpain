@@ -4,7 +4,7 @@ import re
 
 from discord.ext import tasks, commands
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
-                        TierValidationException)
+                        TierValidationException, AlreadyMatchedException)
 
 
 TIER_ROLES = ("Tier 1", "Tier 2", "Tier 3", "Tier 4")
@@ -15,6 +15,7 @@ class Matchmaking(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
+        self.confirmation_list = []
     
     def setup_matchmaking(self, guild, list_message):
         self.guild = guild
@@ -23,7 +24,7 @@ class Matchmaking(commands.Cog):
         self.arena_status = {f"arena-{i}" : None for i in range(1, len(self.arenas) + 1)}
         
         self.list_message = list_message
-    
+
     @commands.command()
     async def friendlies(self, ctx, tier_num=None):
         """
@@ -33,6 +34,12 @@ class Matchmaking(commands.Cog):
         player = ctx.author
         tier_role = self.get_tier(player)
 
+        # Check if player can join the search lists
+        try:
+            await self.can_join_search(ctx.author)
+        except AlreadyMatchedException as e:
+            return await ctx.send(e)
+        
         # Validate tiers
         try:
             tier_range = self.tier_range_validation(tier_role, tier_num)
@@ -61,11 +68,18 @@ class Matchmaking(commands.Cog):
             asyncio.gather(*[self.remove_from_search_list(player, range(1, 5)) for player in match])
             asyncio.create_task(self.update_list_message())
 
+            # Add them to the confirmation_list
+            self.confirmation_list.extend(match)
+
             # Send DM with confirmation
             confirmation = await self.confirm_match(player1, player2)
             
             if not confirmation['accepted']:
                 player_to_reinsert = confirmation['player_to_reinsert']
+                
+                self.confirmation_list.remove(player1)
+                self.confirmation_list.remove(player2)
+                
                 tier = self.get_tier(player_to_reinsert)
                 tier_num = int(tier.name[-1])
                 tier_range = range(tier_num, tier_num + 1)
@@ -77,6 +91,10 @@ class Matchmaking(commands.Cog):
             # Get and lock an arena
             arena = await self.get_free_arena()
             self.arena_status[arena.name] = match
+            
+            # Remove them from the confirmation list
+            self.confirmation_list.remove(player1)
+            self.confirmation_list.remove(player2)
 
             #Set Permissions            
             arena_permissions = [arena.set_permissions(player, read_messages=True, send_messages=True) for player in match]
@@ -160,7 +178,15 @@ class Matchmaking(commands.Cog):
 
     # *************************************
     #       S E A R C H      L I S T
-    # ************************************* 
+    # *************************************
+    async def can_join_search(self, player):
+        if player in self.confirmation_list:
+            raise AlreadyMatchedException("¡Ya tienes match! Ve a aceptarlo o espera a que tu rival conteste.")
+
+        for match in self.arena_status.values():
+            if match is not None and player in match:
+                raise AlreadyMatchedException("¡Ya estás jugando con alguien! ¿Te has olvidado de cerrar la arena con `.ggs`?")
+        return True
 
     def is_match_possible(self, tier_range):
         """
