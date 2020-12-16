@@ -53,20 +53,27 @@ class Matchmaking(commands.Cog):
             await self.can_join_search(ctx.author)
         except AlreadyMatchedException as e:
             return await ctx.send(e)
-        
+
+        # If .friendlies in #tier-x:
+        if tier_num is None:
+            channel_name = ctx.channel.name if ctx.channel else None
+            
+            if channel_name in TIER_CHANNEL_NAMES:
+                tier_num = channel_name[-1]
+
         # Validate tiers
         try:
             tier_range = self.tier_range_validation(tier_role, tier_num)
         except TierValidationException as e:
             return await ctx.send(e)
-
+        
         # Add them to search
         tiers_added = await self.add_to_search_list(player, tier_range)
 
         # Remove unwanted tiers
-        has_removed = await self.remove_from_search_list(player, (i for i in range(1, 5) if i not in tier_range))
+        tiers_removed = await self.remove_from_search_list(player, (i for i in range(1, 5) if i not in tier_range))
 
-        if not tiers_added and not has_removed:
+        if not tiers_added and not tiers_removed:
             return await ctx.send(f"Pero {player.mention}, ¡si ya estabas en la cola!")
         
         if not self.is_match_possible(tier_range):
@@ -78,8 +85,16 @@ class Matchmaking(commands.Cog):
                 mention_message = f"Atención {tier_role.mention}, ¡{ctx.author.name} busca rival!"
 
                 tier_mention_tasks.append(tier_channel.send(mention_message))            
-            
-            await asyncio.gather(*tier_mention_tasks)        
+            if tier_mention_tasks:
+                await asyncio.gather(*tier_mention_tasks)
+            else:
+                tiers_removed_join = ", ".join([f"Tier {i}" for i in tiers_removed])
+                if len(tiers_removed) == 1:
+                    tiers_removed_str = f"la {tiers_removed_join}"
+                else:
+                    tiers_removed_str = f"las siguientes tiers: {tiers_removed_join}"                
+                
+                await ctx.send(f"Vale {player.name}, has dejado de buscar en {tiers_removed_str}.")
         
         # Matchmaking
         await self.matchmaking(tier_range)
@@ -109,7 +124,7 @@ class Matchmaking(commands.Cog):
         has_removed = await self.remove_from_search_list(player, range(1, 5))
         
         if has_removed:
-            await ctx.send(f"Vale {player.mention}, te saco de la cola. ¡Hasta pronto!")
+            await ctx.send(f"Vale {player.name}, te saco de la cola. ¡Hasta pronto!")
         else:
             await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
 
@@ -202,14 +217,17 @@ class Matchmaking(commands.Cog):
         """
         Removes a player from every list in the given tier_range.
         """
-        has_removed = False
+        tiers_removed = []
+        
         for i in tier_range:
             if player in self.search_list[f'Tier {i}']:
                 self.search_list[f'Tier {i}'].remove(player)
-                has_removed = True
-        if has_removed:
+                tiers_removed.append(i)
+        
+        if tiers_removed:
             asyncio.create_task(self.update_list_message())
-        return has_removed    
+        
+        return tiers_removed
 
     async def remove_from_rejected_list(self, match_set):
         await asyncio.sleep(10)
