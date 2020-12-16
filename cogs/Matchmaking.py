@@ -8,7 +8,9 @@ from .Exceptions import (RejectedException, ConfirmationTimeOutException,
                         TierValidationException, AlreadyMatchedException)
 
 
-TIER_ROLES = ("Tier 1", "Tier 2", "Tier 3", "Tier 4")
+TIER_NAMES = ("Tier 1", "Tier 2", "Tier 3", "Tier 4")
+TIER_CHANNEL_NAMES = ("tier-1", "tier-2", "tier-3", "tier-4")
+
 DEV_MODE = False  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
 
 class Matchmaking(commands.Cog):
@@ -26,6 +28,16 @@ class Matchmaking(commands.Cog):
         self.arena_status = {f"arena-{i}" : None for i in range(1, len(self.arenas) + 1)}
         
         self.list_message = list_message
+        
+        self.tier_roles = {}
+        self.tier_channels = {}
+        
+        for tier_name, tier_channel_name in zip(TIER_NAMES, TIER_CHANNEL_NAMES):
+            role = discord.utils.get(self.guild.roles, name = tier_name)
+            channel = discord.utils.get(self.guild.channels, name = tier_channel_name)
+            
+            self.tier_roles[tier_name] = role
+            self.tier_channels[tier_name] = channel
 
     @commands.command()
     async def friendlies(self, ctx, tier_num=None):
@@ -49,15 +61,25 @@ class Matchmaking(commands.Cog):
             return await ctx.send(e)
 
         # Add them to search
-        has_added = await self.add_to_search_list(player, tier_range)
+        tiers_added = await self.add_to_search_list(player, tier_range)
 
         # Remove unwanted tiers
         has_removed = await self.remove_from_search_list(player, (i for i in range(1, 5) if i not in tier_range))
 
-        if not has_added and not has_removed:
+        if not tiers_added and not has_removed:
             return await ctx.send(f"Pero {player.mention}, ¡si ya estabas en la cola!")
         
-        await ctx.send(f"Vale {player.mention}, ahora estás en las siguientes listas: " + ", ".join((f"Tier {i}" for i in tier_range)))        
+        if not self.is_match_possible(tier_range):
+            # Mention @Tier X
+            tier_mention_tasks = []
+            for tier_num in tiers_added:  
+                tier_role = self.tier_roles[f'Tier {tier_num}']
+                tier_channel = self.tier_channels[f'Tier {tier_num}']
+                mention_message = f"Atención {tier_role.mention}, ¡{ctx.author.name} busca rival!"
+
+                tier_mention_tasks.append(tier_channel.send(mention_message))            
+            
+            await asyncio.gather(*tier_mention_tasks)        
         
         # Matchmaking
         await self.matchmaking(tier_range)
@@ -103,8 +125,8 @@ class Matchmaking(commands.Cog):
             member = player
         else:            
             member = self.guild.get_member(player.id)        
-        
-        return next((role for role in member.roles if role.name in TIER_ROLES), None)
+                
+        return next((role for role in member.roles if role in self.tier_roles.values()), None)
 
     def tier_range_validation(self, tier_role, limit_tier_num):
         """
@@ -118,11 +140,11 @@ class Matchmaking(commands.Cog):
         if limit_tier_num is not None:
             limit_tier_name = f'Tier {limit_tier_num}'
             
-            if limit_tier_name not in TIER_ROLES: # Invalid number
+            if limit_tier_name not in TIER_NAMES: # Invalid number
                 raise TierValidationException(f"Formato inválido: únete a la cola con `.friendlies X`, con X siendo un número de 1 a 4")
             
             # Get role of limit_tier
-            limit_tier_role = next((role for role in self.guild.roles if role.name == limit_tier_name))
+            limit_tier_role = self.tier_roles[limit_tier_name]
             
             if tier_role < limit_tier_role: # Tu tier es inferior a la de la lista
                 raise TierValidationException(f"Intentas colarte en la lista de la {limit_tier_name}, pero aún eres de {tier_role.name}... ¡A seguir mejorando!")
@@ -130,7 +152,6 @@ class Matchmaking(commands.Cog):
             limit_tier_num = tier_role.name[-1]
 
         return range(int(tier_role.name[-1]), int(limit_tier_num) + 1)
-
 
     # *************************************
     #       S E A R C H      L I S T
@@ -163,20 +184,19 @@ class Matchmaking(commands.Cog):
     async def add_to_search_list(self, player, tier_range):
         """
         Adds a player to every search list in the passed range.
-        Returns True if the player has been added to any list,
-        False otherwise.    
-        """
-        has_added = False
+        Returns a list with the tier numbers where the player
+        has been added
+        """        
+        tiers_added = []
         
         for i in tier_range:
             if DEV_MODE or player not in self.search_list[f'Tier {i}']:
                 self.search_list[f'Tier {i}'].append(player)
-                has_added = True
-        
-        if has_added:
+                tiers_added.append(i)        
+        if tiers_added:
             asyncio.create_task(self.update_list_message())
 
-        return has_added
+        return tiers_added
 
     async def remove_from_search_list(self, player, tier_range):
         """
@@ -408,7 +428,7 @@ class Matchmaking(commands.Cog):
     async def update_list_message(self):        
         response = "**__Friendlies list:__**\n"
         
-        for tier in TIER_ROLES:
+        for tier in TIER_NAMES:
             players = ", ".join([player.name for player in self.search_list[tier]])
             response += f"__{tier}__: {players}\n"
         
