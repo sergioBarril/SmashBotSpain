@@ -1,6 +1,7 @@
 import discord
 import asyncio
 import re
+import itertools
 
 from discord.ext import tasks, commands
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
@@ -16,6 +17,7 @@ class Matchmaking(commands.Cog):
         self.bot = bot
         self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
         self.confirmation_list = []
+        self.rejected_list = []
     
     def setup_matchmaking(self, guild, list_message):
         self.guild = guild
@@ -55,56 +57,10 @@ class Matchmaking(commands.Cog):
         if not has_added and not has_removed:
             return await ctx.send(f"Pero {player.mention}, ¡si ya estabas en la cola!")
         
-        await ctx.send(f"Vale {player.mention}, ahora estás en las siguientes listas: " + ", ".join((f"Tier {i}" for i in tier_range)))                
-
-        # MATCH WHILE
-        while tier := self.is_match_possible(tier_range):
-
-            match = self.search_list[f'Tier {tier}'][:2]
-
-            player1, player2 = match
-            
-            # Remove from all lists
-            asyncio.gather(*[self.remove_from_search_list(player, range(1, 5)) for player in match])
-            asyncio.create_task(self.update_list_message())
-
-            # Add them to the confirmation_list
-            self.confirmation_list.extend(match)
-
-            # Send DM with confirmation
-            confirmation = await self.confirm_match(player1, player2)
-            
-            if not confirmation['accepted']:
-                player_to_reinsert = confirmation['player_to_reinsert']
-                
-                self.confirmation_list.remove(player1)
-                self.confirmation_list.remove(player2)
-                
-                tier = self.get_tier(player_to_reinsert)
-                tier_num = int(tier.name[-1])
-                tier_range = range(tier_num, tier_num + 1)
-
-                if await self.add_to_search_list(player_to_reinsert, tier_range):
-                    await player_to_reinsert.send(f"Te he puesto otra vez en la cola de {tier.name}")
-                continue
-
-            # Get and lock an arena
-            arena = await self.get_free_arena()
-            self.arena_status[arena.name] = match
-            
-            # Remove them from the confirmation list
-            self.confirmation_list.remove(player1)
-            self.confirmation_list.remove(player2)
-
-            #Set Permissions            
-            arena_permissions = [arena.set_permissions(player, read_messages=True, send_messages=True) for player in match]
-            await asyncio.gather(*arena_permissions)
-            
-            # Send invites for faster arena access
-            await self.send_invites(arena, player1, player2)
-            
-            await arena.send(f"¡Perfecto, aceptasteis ambos! {match[0].mention} y {match[1].mention}, ¡a jugar!")
-            await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.")
+        await ctx.send(f"Vale {player.mention}, ahora estás en las siguientes listas: " + ", ".join((f"Tier {i}" for i in tier_range)))        
+        
+        # Matchmaking
+        await self.matchmaking(tier_range)
 
     @commands.command()
     async def ggs(self, ctx):
@@ -188,14 +144,20 @@ class Matchmaking(commands.Cog):
                 raise AlreadyMatchedException("¡Ya estás jugando con alguien! ¿Te has olvidado de cerrar la arena con `.ggs`?")
         return True
 
-    def is_match_possible(self, tier_range):
+    def is_match_possible(self, tier_range=range(1, 5)):
         """
-        Checks whether a match can be found in the given range,
-        and if true, returns the number of the tier where it is.
+        Checks whether a match can be found in the given range
+        and if true, returns a set with both players.
         """
         for i in tier_range:
-            if len(self.search_list[f'Tier {i}']) > 1:
-                return i
+            tier_list = self.search_list[f'Tier {i}']
+            if len(tier_list) < 2:
+                continue
+            match_set_combinations = map(set, itertools.combinations(tier_list, 2))
+            match = next((match_set for match_set in match_set_combinations if match_set not in self.rejected_list), None)
+
+            if match is not None:
+                return match                       
         return False
     
     async def add_to_search_list(self, player, tier_range):
@@ -228,6 +190,69 @@ class Matchmaking(commands.Cog):
         if has_removed:
             asyncio.create_task(self.update_list_message())
         return has_removed    
+
+    async def remove_from_rejected_list(self, match_set):
+        await asyncio.sleep(10)
+        self.rejected_list.remove(match_set)
+        # After the timeout has happened, try matchmaking in case they're still there
+        await self.matchmaking()
+
+    # ************************************************
+    #          M  A  T  C  H  M  A  K  I  N  G
+    # ************************************************
+
+    async def matchmaking(self, tier_range = range(1, 5)):
+        # MATCH WHILE
+        while match := self.is_match_possible(tier_range):
+            player1, player2 = match
+            
+            # Remove from all lists
+            asyncio.gather(*[self.remove_from_search_list(player, range(1, 5)) for player in match])            
+
+            # Add them to the confirmation_list
+            self.confirmation_list.extend(match)
+
+            # Send DM with confirmation
+            confirmation = await self.confirm_match(player1, player2)
+            
+            if not confirmation['accepted']:
+                player_to_reinsert = confirmation['player_to_reinsert']
+                
+                self.confirmation_list.remove(player1)
+                self.confirmation_list.remove(player2)
+
+                if confirmation['reason'] == RejectedException.REASON:
+                    self.rejected_list.append({player1, player2})
+                    asyncio.create_task(self.remove_from_rejected_list({player1, player2}))
+
+                tier = self.get_tier(player_to_reinsert)
+                tier_num = int(tier.name[-1])
+                tier_range = range(tier_num, tier_num + 1)
+
+                if await self.add_to_search_list(player_to_reinsert, tier_range):
+                    await player_to_reinsert.send(f"Te he puesto otra vez en la cola de {tier.name}")
+                continue
+
+            # Get and lock an arena
+            arena = await self.get_free_arena()
+            self.arena_status[arena.name] = match
+            
+            # Remove them from the confirmation list
+            self.confirmation_list.remove(player1)
+            self.confirmation_list.remove(player2)
+
+            #Set Permissions            
+            arena_permissions = [arena.set_permissions(player, read_messages=True, send_messages=True) for player in match]
+            await asyncio.gather(*arena_permissions)
+            
+            # Send invites for faster arena access
+            await self.send_invites(arena, player1, player2)
+            
+            await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
+            await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.")
+
+            # Check if there's still someone who can be matched in any tier
+            tier_range = range(1, 5)
 
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
@@ -303,17 +328,17 @@ class Matchmaking(commands.Cog):
             timeouted_message = f"{e.player.mention} no responde... ¿se habrá quedado dormido?" 
             timeouter_message = f"Parece que no hay nadie en casa... El match ha sido cancelado, vuelve a intentarlo e intenta estar atento."
 
-            exception_messages["REJECT"] = [rejected_message, rejecter_message]
-            exception_messages["TIMEOUT"] = [timeouted_message, timeouter_message]
+            exception_messages[RejectedException.REASON] = [rejected_message, rejecter_message]
+            exception_messages[ConfirmationTimeOutException.REASON] = [timeouted_message, timeouter_message]
             
-            exception_pair = exception_messages[e.reason]
+            exception_pair = exception_messages[e.REASON]
 
             if e.player == player1:
                 exception_pair.reverse()
             
             await asyncio.gather(player1.send(exception_pair[0]), player2.send(exception_pair[1]))
 
-            return {"accepted": False, "player_to_reinsert": player1 if e.player != player1 else player2}
+            return {"accepted": False, "player_to_reinsert": player1 if e.player != player1 else player2, "reason" : e.REASON}
         return {"accepted": True}
 
     async def send_invites(self, arena, player1, player2):
@@ -321,7 +346,7 @@ class Matchmaking(commands.Cog):
         Sends an invite link to both players, that will take them faster to the arena.
         The invite link expires after 25 seconds, and will be then deleted.
         """
-        invite_link = await arena.create_invite(max_age=25, max_uses=1, reason="Acceder más rápido al canal")
+        invite_link = await arena.create_invite(max_age=25, max_uses=1, REASON="Acceder más rápido al canal")
         
         match = player1, player2
 
