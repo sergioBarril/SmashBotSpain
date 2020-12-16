@@ -375,8 +375,12 @@ class Matchmaking(commands.Cog):
         return await self.make_arena()
 
     async def make_arena(self):
-        arenas_category = discord.utils.get(self.guild.categories, name="ARENAS")        
-        new_arena_name = f'arena-{len(self.arenas) + 1}'
+        def get_arena_number(arena):
+            return int(arena.name[arena.name.index("-"):])
+
+        arenas_category = discord.utils.get(self.guild.categories, name="ARENAS")
+        new_arena_number = max(map(get_arena_number, self.arenas), default=0) + 1
+        new_arena_name = f'arena-{new_arena_number}'
         channel = await arenas_category.create_text_channel(new_arena_name)
         
         # Arena list and status dictionary updated
