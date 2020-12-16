@@ -1,12 +1,14 @@
 import discord
 import asyncio
+import re
 
 from discord.ext import tasks, commands
-from .Exceptions import RejectedException, ConfirmationTimeOutException, AlreadySearchingException
+from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
+                        TierValidationException)
 
 
 TIER_ROLES = ("Tier 1", "Tier 2", "Tier 3", "Tier 4")
-DEV_MODE = True  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
+DEV_MODE = False  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
 
 class Matchmaking(commands.Cog):
     
@@ -23,42 +25,53 @@ class Matchmaking(commands.Cog):
         self.list_message = list_message
     
     @commands.command()
-    async def friendlies(self, ctx):
+    async def friendlies(self, ctx, tier_num=None):
         """
         You can join the list of friendlies with this command.
         """
         # Get player and tier
         player = ctx.author
-        tier = self.get_tier(player)
-        
-        if not tier:
-            await ctx.send("No tienes Tier... Habla con algún admin para que te asigne una.")
-            return
-        
-        # Add them to search
-        try:
-            await self.add_to_search_list(player, tier)
-        except AlreadySearchingException:
-            return await ctx.send(f"Hey {player.mention}, you're already in!")
-        
-        await ctx.send(f"Perfecto {player.mention}, te acabo de meter.")        
-        
-        while self.is_match_possible(tier):
+        tier_role = self.get_tier(player)
 
-            match = self.search_list[tier.name][:2]
+        # Validate tiers
+        try:
+            tier_range = self.tier_range_validation(tier_role, tier_num)
+        except TierValidationException as e:
+            return await ctx.send(e)
+
+        # Add them to search
+        has_added = await self.add_to_search_list(player, tier_range)
+
+        # Remove unwanted tiers
+        has_removed = await self.remove_from_search_list(player, (i for i in range(1, 5) if i not in tier_range))
+
+        if not has_added and not has_removed:
+            return await ctx.send(f"Pero {player.mention}, ¡si ya estabas en la cola!")
+        
+        await ctx.send(f"Vale {player.mention}, ahora estás en las siguientes listas: " + ", ".join((f"Tier {i}" for i in tier_range)))                
+
+        # MATCH WHILE
+        while tier := self.is_match_possible(tier_range):
+
+            match = self.search_list[f'Tier {tier}'][:2]
 
             player1, player2 = match
             
-            # Remove from the list
-            asyncio.gather(*[self.remove_from_search_list(player, tier) for player in match])
+            # Remove from all lists
+            asyncio.gather(*[self.remove_from_search_list(player, range(1, 5)) for player in match])
+            asyncio.create_task(self.update_list_message())
 
             # Send DM with confirmation
             confirmation = await self.confirm_match(player1, player2)
+            
             if not confirmation['accepted']:
                 player_to_reinsert = confirmation['player_to_reinsert']
                 tier = self.get_tier(player_to_reinsert)
+                tier_num = int(tier.name[-1])
+                tier_range = range(tier_num, tier_num + 1)
 
-                await self.add_to_search_list(player_to_reinsert, tier, 0)                
+                if await self.add_to_search_list(player_to_reinsert, tier_range):
+                    await player_to_reinsert.send(f"Te he puesto otra vez en la cola de {tier.name}")
                 continue
 
             # Get and lock an arena
@@ -96,27 +109,100 @@ class Matchmaking(commands.Cog):
     @commands.command()
     async def cancel(self, ctx):
         player = ctx.author
-        tier = self.get_tier(player)
-
-        if player in self.search_list[tier.name]:
-            await self.remove_from_search_list(player, tier)
+        tier = self.get_tier(player)        
+        has_removed = await self.remove_from_search_list(player, range(1, 5))
+        
+        if has_removed:
             await ctx.send(f"Vale {player.mention}, te saco de la cola. ¡Hasta pronto!")
         else:
             await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
-        
-    def is_match_possible(self, tier):
-        return len(self.search_list[tier.name]) > 1
 
+    #  ************************************
+    #              T I E R S
+    #  ************************************
+    
     def get_tier(self, player):
+        """
+        Given a player, returns the role with their Tier.
+        """
         if isinstance(player, discord.member.Member):
             member = player
         else:            
             member = self.guild.get_member(player.id)        
         
-        return next((role for role in member.roles if role.name in TIER_ROLES), None)    
-            
+        return next((role for role in member.roles if role.name in TIER_ROLES), None)
 
+    def tier_range_validation(self, tier_role, limit_tier_num):
+        """
+        Given a Tier role and a number from 1 to 4,
+        validates the input and returns a range of tiers
+        that the player will join.
+        """
+        if not tier_role:
+            raise TierValidationException("No tienes Tier... Habla con algún admin para que te asigne una.")        
+        
+        if limit_tier_num is not None:
+            limit_tier_name = f'Tier {limit_tier_num}'
+            
+            if limit_tier_name not in TIER_ROLES: # Invalid number
+                raise TierValidationException(f"Formato inválido: únete a la cola con `.friendlies X`, con X siendo un número de 1 a 4")
+            
+            # Get role of limit_tier
+            limit_tier_role = next((role for role in self.guild.roles if role.name == limit_tier_name))
+            
+            if tier_role < limit_tier_role: # Tu tier es inferior a la de la lista
+                raise TierValidationException(f"Intentas colarte en la lista de la {limit_tier_name}, pero aún eres de {tier_role.name}... ¡A seguir mejorando!")
+        else:
+            limit_tier_num = tier_role.name[-1]
+
+        return range(int(tier_role.name[-1]), int(limit_tier_num) + 1)
+
+
+    # *************************************
+    #       S E A R C H      L I S T
+    # ************************************* 
+
+    def is_match_possible(self, tier_range):
+        """
+        Checks whether a match can be found in the given range,
+        and if true, returns the number of the tier where it is.
+        """
+        for i in tier_range:
+            if len(self.search_list[f'Tier {i}']) > 1:
+                return i
+        return False
     
+    async def add_to_search_list(self, player, tier_range):
+        """
+        Adds a player to every search list in the passed range.
+        Returns True if the player has been added to any list,
+        False otherwise.    
+        """
+        has_added = False
+        
+        for i in tier_range:
+            if DEV_MODE or player not in self.search_list[f'Tier {i}']:
+                self.search_list[f'Tier {i}'].append(player)
+                has_added = True
+        
+        if has_added:
+            asyncio.create_task(self.update_list_message())
+
+        return has_added
+
+    async def remove_from_search_list(self, player, tier_range):
+        """
+        Removes a player from every list in the given tier_range.
+        """
+        has_removed = False
+        for i in tier_range:
+            if player in self.search_list[f'Tier {i}']:
+                self.search_list[f'Tier {i}'].remove(player)
+                has_removed = True
+        if has_removed:
+            asyncio.create_task(self.update_list_message())
+        return has_removed    
+
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
     #  ***********************************************
@@ -135,17 +221,19 @@ class Matchmaking(commands.Cog):
         EMOJI_CONFIRM = '\u2705' #✅
         EMOJI_REJECT = '\u274C' #❌
 
+        match = player1, player2
+
         @asyncio.coroutine
         async def send_confirmation(player1, player2):
             return await player1.send(f"¡Match encontrado! {player1.mention}, te toca contra {player2.mention}. ¿Aceptas?")
-
+                
         # Send confirmation
         task1 = asyncio.create_task(send_confirmation(player1, player2))
         task2 = asyncio.create_task(send_confirmation(player2, player1))
         confirm_message1, confirm_message2 = await asyncio.gather(task1, task2)
         
         @asyncio.coroutine
-        async def initial_reactions(message):
+        async def reactions(message):
             def check_message(reaction, user):
                 is_same_message = (reaction.message == message)
                 is_valid_emoji = (reaction.emoji in (EMOJI_CONFIRM, EMOJI_REJECT))
@@ -172,8 +260,8 @@ class Matchmaking(commands.Cog):
         
         reaction_tasks = []
 
-        reaction_tasks.append(asyncio.create_task(initial_reactions(confirm_message1)))
-        reaction_tasks.append(asyncio.create_task(initial_reactions(confirm_message2)))
+        reaction_tasks.append(asyncio.create_task(reactions(confirm_message1)))
+        reaction_tasks.append(asyncio.create_task(reactions(confirm_message2)))
 
         try:
             reaction1, reaction2 = await asyncio.gather(*reaction_tasks)
@@ -184,10 +272,10 @@ class Matchmaking(commands.Cog):
             exception_messages = {}
             
             # Different messages for the exceptions
-            rejected_message = f"{e.player.mention} ha rechazado el match... ¿en otro momento, quizás?\nEl match ha sido cancelado, y has sido puesto en cola de nuevo."
+            rejected_message = f"{e.player.mention} ha rechazado el match... ¿en otro momento, quizás?"
             rejecter_message = f"Vale, match rechazado."
-            timeouted_message = f"{e.player.mention} no responde... ¿se habrá quedado dormido?\nEl match ha sido cancelado, y has sido puesto en cola de nuevo." 
-            timeouter_message = f"Parece que no hay nadie en casa...\nEl match ha sido cancelado, vuelve a intentarlo e intenta estar atento."
+            timeouted_message = f"{e.player.mention} no responde... ¿se habrá quedado dormido?" 
+            timeouter_message = f"Parece que no hay nadie en casa... El match ha sido cancelado, vuelve a intentarlo e intenta estar atento."
 
             exception_messages["REJECT"] = [rejected_message, rejecter_message]
             exception_messages["TIMEOUT"] = [timeouted_message, timeouter_message]
@@ -197,22 +285,24 @@ class Matchmaking(commands.Cog):
             if e.player == player1:
                 exception_pair.reverse()
             
-            await player1.send(exception_pair[0])
-            await player2.send(exception_pair[1])
-            
+            await asyncio.gather(player1.send(exception_pair[0]), player2.send(exception_pair[1]))
+
             return {"accepted": False, "player_to_reinsert": player1 if e.player != player1 else player2}
         return {"accepted": True}
 
-
     async def send_invites(self, arena, player1, player2):
+        """
+        Sends an invite link to both players, that will take them faster to the arena.
+        The invite link expires after 25 seconds, and will be then deleted.
+        """
         invite_link = await arena.create_invite(max_age=25, max_uses=1, reason="Acceder más rápido al canal")
         
-        players = player1, player2
+        match = player1, player2
 
-        message_tasks = [player.send(f"Listo, dirígete a la #{arena.name}") for player in players]        
+        message_tasks = [player.send(f"Listo, dirígete a la #{arena.name}") for player in match]
         messages = await asyncio.gather(*message_tasks)
 
-        send_invite_tasks = [player.send(invite_link) for player in players]
+        send_invite_tasks = [player.send(invite_link) for player in match]
         invite_messages = await asyncio.gather(*send_invite_tasks)
 
         async def delete_invite(invite_message):
@@ -225,29 +315,13 @@ class Matchmaking(commands.Cog):
 
     #  ***********************************************
     #           A   R   E   N   A   S
-    #  ***********************************************
-    
-    async def add_to_search_list(self, player, tier, index = None):
-        if player in self.search_list[tier.name] and not DEV_MODE:
-            raise AlreadySearchingException(player)
-        
-        if index is None:
-            self.search_list[tier.name].append(player)
-        else:
-            self.search_list[tier.name].insert(index, player)
-        
-        asyncio.create_task(self.update_list_message())
-    
-    async def remove_from_search_list(self, player, tier):
-        if not self.search_list[tier.name]:
-            raise Exception()
-        self.search_list[tier.name].remove(player)
-        asyncio.create_task(self.update_list_message())
-        
-        return player
-
+    #  ***********************************************    
     async def get_free_arena(self):
-        return next((arena for arena in self.arenas if not arena in self.arena_status[arena.name]), await self.make_arena())
+        for arena in self.arenas:
+            if not self.arena_status[arena.name]:
+                return arena
+        # No arena available, let's make one
+        return await self.make_arena()
 
     async def make_arena(self):
         arenas_category = discord.utils.get(self.guild.categories, name="ARENAS")        
