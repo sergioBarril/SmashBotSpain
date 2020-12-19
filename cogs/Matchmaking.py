@@ -2,6 +2,7 @@ import discord
 import asyncio
 import re
 import itertools
+import typing
 
 from discord.ext import tasks, commands
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
@@ -15,6 +16,29 @@ DEV_MODE = False  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
 
 EMOJI_CONFIRM = '\u2705' #✅
 EMOJI_REJECT = '\u274C' #❌
+
+
+
+NUMBER_EMOJIS = (
+    *[f'{i}\N{variation selector-16}\N{combining enclosing keycap}' for i in range(1, 10)],
+    '\N{keycap ten}',
+)
+
+
+# ***********************
+# ***********************
+#       C H E C K S
+# ***********************
+# ***********************
+
+def in_their_arena(ctx):
+    player = ctx.author
+    arena = ctx.channel
+    
+    if arena not in ctx.cog.arenas:
+        return False
+    
+    return player in ctx.cog.arena_status[arena.name]
 
 class Matchmaking(commands.Cog):
     
@@ -104,6 +128,7 @@ class Matchmaking(commands.Cog):
         await self.matchmaking(tier_range)
 
     @commands.command()
+    @commands.check(in_their_arena)
     async def ggs(self, ctx):
         arena = ctx.channel
         player = ctx.author
@@ -132,12 +157,22 @@ class Matchmaking(commands.Cog):
             await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
 
     @commands.command()
-    async def invite(self, ctx, guest : discord.Member):
+    @commands.check(in_their_arena)
+    async def invite(self, ctx, guest : typing.Optional[discord.Member]):
         host = ctx.author
+        arena = ctx.channel
+
+        if len(self.arena_status[arena.name]) > 1:
+            ctx.send("Ya sois 3 en la arena (aún no están implementadas las arenas de más de 3 personas).")
 
         host_tier = self.get_tier(host)
+        
+        if guest is None:
+            # Show mentions list
+            tier_range = self.tier_range_validation(host_tier, 4)
+            return await self.invite_mention_list(ctx, tier_range)
+        
         guest_tier = self.get_tier(guest)
-
         tier_range = self.tier_range_validation(host_tier, guest_tier.name[-1])
 
         is_searching = False
@@ -149,10 +184,6 @@ class Matchmaking(commands.Cog):
         if not is_searching:
             return await ctx.send("No parece que esté buscando partida... decidle que haga `.friendlies` primero.")
 
-        #Get arena
-        arena = ctx.channel
-        
-        # Get both players
         host1, host2 = self.arena_status[arena.name]
         
         # Ask for guest's consent
@@ -521,6 +552,9 @@ class Matchmaking(commands.Cog):
         self.arena_invites = {}
 
     async def delete_arena(self, arena):
+        if arena not in self.arenas:
+            return
+        
         self.arenas.remove(arena)
         self.arena_status.pop(arena.name, None)
 
@@ -542,6 +576,59 @@ class Matchmaking(commands.Cog):
             response += f"__{tier}__: {players}\n"
         
         await self.list_message.edit(content=response)
+    
+    async def invite_mention_list(self, ctx, tier_range):
+        response = (f"**__Lista de menciones:__**\n"
+            f"_¡Simplemente reacciona con el emoji del jugador a invitar (solo uno)!_\n")
+        
+        arena = ctx.channel
+
+        # Get unique players
+        players = []
+       
+        for tier_num in tier_range:
+            tier_name = f'Tier {tier_num}'
+                        
+            for player in self.search_list[tier_name]:
+                if player not in players:        
+                    players.append(player)
+
+        # There are only 10 emojis with numbers. For now that'll be more than enough.
+        players = players[:10]
+
+        if not players:
+            return await ctx.send("No hay nadie buscando partida.")
+
+        for i, player in enumerate(players, start=1):
+            response += f"{i}. {player.name} ({self.get_tier(player).name})\n"
+        
+        message = await arena.send(response)
+        
+        message_reactions = [message.add_reaction(emoji) for emoji in NUMBER_EMOJIS[ : len(players)]]
+        await asyncio.gather(*message_reactions)
+
+        def check_message(reaction, user):
+            is_same_message = (reaction.message == message)
+            is_valid_emoji = (reaction.emoji in (NUMBER_EMOJIS))
+            is_author = (user == ctx.author)
+
+            return is_same_message and is_valid_emoji and is_author
+
+        emoji, player = await self.bot.wait_for('reaction_add', check=check_message)
+
+        player_index = NUMBER_EMOJIS.index(str(emoji))
+
+        invited_player = players[player_index]
+
+        invite_task = asyncio.create_task(self.invite(ctx, invited_player))        
+        self.arena_invites[arena.name].append(invite_task)
+        return await invite_task
+    
+    @commands.command()
+    async def check_tasks(self, ctx):
+        tasks = asyncio.all_tasks()
+        tasks_name = [task.get_name() for task in tasks]
+        await ctx.send(tasks_name)
 
 def setup(bot):
     bot.add_cog(Matchmaking(bot))
