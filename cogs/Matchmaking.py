@@ -13,6 +13,9 @@ TIER_CHANNEL_NAMES = ("tier-1", "tier-2", "tier-3", "tier-4")
 
 DEV_MODE = False  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
 
+EMOJI_CONFIRM = '\u2705' #✅
+EMOJI_REJECT = '\u274C' #❌
+
 class Matchmaking(commands.Cog):
     
     def __init__(self, bot):
@@ -24,8 +27,9 @@ class Matchmaking(commands.Cog):
     def setup_matchmaking(self, guild, list_message):
         self.guild = guild
         
-        self.arenas =  discord.utils.get(self.guild.categories, name="ARENAS").channels
-        self.arena_status = {f"arena-{i}" : None for i in range(1, len(self.arenas) + 1)}
+        self.arenas = []
+        self.arena_status = {}
+        self.arena_invites = {}
         
         self.list_message = list_message
         
@@ -101,32 +105,59 @@ class Matchmaking(commands.Cog):
 
     @commands.command()
     async def ggs(self, ctx):
+        arena = ctx.channel
+        player = ctx.author
+        arena_players = self.arena_status[arena.name]
+
+        # Alguien invitado
+        if len(arena_players) > 2:
+            await ctx.send(f"GGs, {ctx.author.name} lo deja por hoy.")
+            await self.remove_arena_permissions(player, arena)
+            return arena_players.remove(player)
+
+        # 1 vs 1
         await ctx.send("GGs, ¡gracias por jugar!")
         await asyncio.sleep(10)
-        if ctx.channel in self.arenas:
-            await self.delete_arena(ctx.channel)
-        
-        else: 
-            # Search the channel to close
-            arena_to_close = None
-            for arena in self.arenas:
-                if ctx.author in self.arena_status[arena.name]:
-                    arena_to_close = arena
-                    break            
-            # Delete it
-            if arena_to_close:
-                await self.delete_arena(arena_to_close)
+
+        await self.delete_arena(arena)
 
     @commands.command()
     async def cancel(self, ctx):
         player = ctx.author
-        tier = self.get_tier(player)        
         has_removed = await self.remove_from_search_list(player, range(1, 5))
         
         if has_removed:
             await ctx.send(f"Vale {player.name}, te saco de la cola. ¡Hasta pronto!")
         else:
             await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
+
+    @commands.command()
+    async def invite(self, ctx, guest : discord.Member):
+        host = ctx.author
+
+        host_tier = self.get_tier(host)
+        guest_tier = self.get_tier(guest)
+
+        tier_range = self.tier_range_validation(host_tier, guest_tier.name[-1])
+
+        is_searching = False
+        for tier_num in tier_range:
+            if guest in self.search_list[f'Tier {tier_num}']:
+                is_searching = True
+                break
+
+        if not is_searching:
+            return await ctx.send("No parece que esté buscando partida... decidle que haga `.friendlies` primero.")
+
+        #Get arena
+        arena = ctx.channel
+        
+        # Get both players
+        host1, host2 = self.arena_status[arena.name]
+        
+        # Ask for guest's consent
+        await self.confirm_invite(host1, host2, guest, arena)
+
 
     #  ************************************
     #              T I E R S
@@ -193,7 +224,7 @@ class Matchmaking(commands.Cog):
             match = next((match_set for match_set in match_set_combinations if match_set not in self.rejected_list), None)
 
             if match is not None:
-                return match                       
+                return list(match)
         return False
     
     async def add_to_search_list(self, player, tier_range):
@@ -379,6 +410,49 @@ class Matchmaking(commands.Cog):
             return {"accepted": False, "player_to_reinsert": player1 if e.player != player1 else player2, "reason" : e.REASON}
         return {"accepted": True}
 
+
+    async def confirm_invite(self, host1, host2, player, arena):
+        message = await player.send(f"{host1.mention} y {host2.mention} te invitan a jugar con ellos en su arena. ¿Aceptas?")
+
+        # React
+        await asyncio.gather(message.add_reaction(EMOJI_CONFIRM), message.add_reaction(EMOJI_REJECT))
+        await asyncio.sleep(0.5)
+        
+        # Wait for user reaction
+        invite_task = asyncio.create_task(self.wait_invite_reaction(message, host1, host2, player, arena))
+        self.arena_invites[arena.name].append(invite_task)
+        await invite_task
+
+    @asyncio.coroutine
+    async def wait_invite_reaction(self, message, host1, host2, player, arena):
+        def check_message(reaction, user):
+            is_same_message = (reaction.message == message)
+            is_valid_emoji = (reaction.emoji in (EMOJI_CONFIRM, EMOJI_REJECT))
+
+            return is_same_message and is_valid_emoji
+
+        try:
+            emoji, player = await self.bot.wait_for('reaction_add', check=check_message)
+            
+            remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
+            await asyncio.gather(*remove_reactions)
+            
+            if str(emoji) == EMOJI_REJECT:
+                await player.send(f"Vale, sin problema.")
+                await arena.send(f"{player.name} ha rechazado la invitación a la arena.")
+            else:
+                has_removed = await self.remove_from_search_list(player, range(1, 5))
+                self.arena_status[arena.name].append(player)
+                await self.give_arena_permissions(player, arena)
+                
+                await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
+                await player.send(f"Perfecto {player.mention}, ¡dirígete a {arena.mention} y saluda a tus anfitriones!")
+        except asyncio.CancelledError as e:
+            remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
+            await asyncio.gather(*remove_reactions)
+            await player.send("Ya han dejado de jugar, rip. ¡Intenta estar más atento la próxima vez!")                
+            return
+
     async def send_invites(self, arena, player1, player2):
         """
         Sends an invite link to both players, that will take them faster to the arena.
@@ -405,13 +479,23 @@ class Matchmaking(commands.Cog):
     #  ***********************************************
     #           A   R   E   N   A   S
     #  ***********************************************    
+    def get_arena(self, arena_name):
+        return next((arena for arena in self.arenas if arena.name == arena_name), None)
+    
     async def get_free_arena(self):
-        for arena in self.arenas:
-            if not self.arena_status[arena.name]:
-                return arena
+        # for arena in self.arenas:
+        #     if not self.arena_status[arena.name]:
+        #         return arena
         # No arena available, let's make one
         return await self.make_arena()
 
+    
+    async def give_arena_permissions(self, player, arena):
+        await arena.set_permissions(player, read_messages=True, send_messages=True)
+
+    async def remove_arena_permissions(self, player, arena):
+        await arena.set_permissions(player, read_messages=False, send_messages=False)
+    
     async def make_arena(self):
         def get_arena_number(arena):
             return int(arena.name[arena.name.index("-"):])
@@ -424,6 +508,7 @@ class Matchmaking(commands.Cog):
         # Arena list and status dictionary updated
         self.arenas.append(channel)
         self.arena_status[new_arena_name] = None
+        self.arena_invites[new_arena_name] = []
 
         return channel
             
@@ -433,10 +518,16 @@ class Matchmaking(commands.Cog):
             await arena.delete()
         self.arena_status = {}
         self.arenas = []
+        self.arena_invites = {}
 
     async def delete_arena(self, arena):
         self.arenas.remove(arena)
         self.arena_status.pop(arena.name, None)
+
+        for invite in self.arena_invites[arena.name]:
+            invite.cancel()
+
+        self.arena_invites.pop(arena.name, None)
         await arena.delete()
   
     # *******************************
