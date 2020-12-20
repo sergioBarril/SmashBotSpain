@@ -10,22 +10,10 @@ from .Exceptions import (RejectedException, ConfirmationTimeOutException,
 
 from .matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CONFIRM, EMOJI_REJECT, 
                     NUMBER_EMOJIS, LIST_CHANNEL_ID, LIST_MESSAGE_ID,
-                    WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE)
+                    WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE,
+                    FRIENDLIES_TIMEOUT)
 
-# ***********************
-# ***********************
-#       C H E C K S
-# ***********************
-# ***********************
-
-def in_their_arena(ctx):
-    player = ctx.author
-    arena = ctx.channel
-    
-    if arena not in ctx.cog.arenas:
-        return False
-    
-    return player in ctx.cog.arena_status[arena.name]
+from .checks.matchmaking_checks import in_their_arena
 
 class Matchmaking(commands.Cog):
     
@@ -388,7 +376,7 @@ class Matchmaking(commands.Cog):
 
             # Wait for user reaction
             try:
-                emoji, player = await self.bot.wait_for('reaction_add', timeout=35.0, check=check_message)
+                emoji, player = await self.bot.wait_for('reaction_add', timeout=FRIENDLIES_TIMEOUT, check=check_message)
             except asyncio.TimeoutError:                
                 raise ConfirmationTimeOutException(message.channel.recipient)
             finally:
