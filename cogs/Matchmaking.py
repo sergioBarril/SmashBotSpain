@@ -8,22 +8,9 @@ from discord.ext import tasks, commands
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
                         TierValidationException, AlreadyMatchedException)
 
-
-TIER_NAMES = ("Tier 1", "Tier 2", "Tier 3", "Tier 4")
-TIER_CHANNEL_NAMES = ("tier-1", "tier-2", "tier-3", "tier-4")
-
-DEV_MODE = False  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
-
-EMOJI_CONFIRM = '\u2705' #✅
-EMOJI_REJECT = '\u274C' #❌
-
-
-
-NUMBER_EMOJIS = (
-    *[f'{i}\N{variation selector-16}\N{combining enclosing keycap}' for i in range(1, 10)],
-    '\N{keycap ten}',
-)
-
+from .matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CONFIRM, EMOJI_REJECT, 
+                    NUMBER_EMOJIS, LIST_CHANNEL_ID, LIST_MESSAGE_ID,
+                    WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE)
 
 # ***********************
 # ***********************
@@ -48,13 +35,17 @@ class Matchmaking(commands.Cog):
         self.confirmation_list = []
         self.rejected_list = []
     
-    def setup_matchmaking(self, guild, list_message):
+    async def setup_matchmaking(self, guild):
         self.guild = guild
         
-        self.arenas = []
+        self.arenas =  discord.utils.get(self.guild.categories, name="ARENAS").channels
+        await self.delete_arenas()
         self.arena_status = {}
         self.arena_invites = {}
         
+        # Message that will have the updated search lists
+        list_channel = self.guild.get_channel(channel_id=LIST_CHANNEL_ID)
+        list_message = await list_channel.fetch_message(LIST_MESSAGE_ID)                        
         self.list_message = list_message
         
         self.tier_roles = {}
@@ -142,7 +133,7 @@ class Matchmaking(commands.Cog):
 
         # 1 vs 1
         await ctx.send("GGs, ¡gracias por jugar!")
-        await asyncio.sleep(10)
+        await asyncio.sleep(GGS_ARENA_COUNTDOWN)
 
         await self.delete_arena(arena)
 
@@ -162,8 +153,8 @@ class Matchmaking(commands.Cog):
         host = ctx.author
         arena = ctx.channel
 
-        if len(self.arena_status[arena.name]) > 1:
-            ctx.send("Ya sois 3 en la arena (aún no están implementadas las arenas de más de 3 personas).")
+        if len(self.arena_status[arena.name]) > 2:
+            return await ctx.send("Ya sois 3 en la arena (aún no están implementadas las arenas de más de 3 personas).")
 
         host_tier = self.get_tier(host)
         
@@ -172,8 +163,11 @@ class Matchmaking(commands.Cog):
             tier_range = self.tier_range_validation(host_tier, 4)
             return await self.invite_mention_list(ctx, tier_range)
         
-        guest_tier = self.get_tier(guest)
-        tier_range = self.tier_range_validation(host_tier, guest_tier.name[-1])
+        
+        # Get min tier list where the guest is searching
+        min_search_tier = [i for i in range(1, 5) if guest in self.search_list[f'Tier {i}']][-1]        
+
+        tier_range = self.tier_range_validation(host_tier, min_search_tier)
 
         is_searching = False
         for tier_num in tier_range:
@@ -292,7 +286,7 @@ class Matchmaking(commands.Cog):
         return tiers_removed
 
     async def remove_from_rejected_list(self, match_set):
-        await asyncio.sleep(10)
+        await asyncio.sleep(WAIT_AFTER_REJECT)
         self.rejected_list.remove(match_set)
         # After the timeout has happened, try matchmaking in case they're still there
         await self.matchmaking()
@@ -369,9 +363,6 @@ class Matchmaking(commands.Cog):
             A dictionary d with d['accepted'] being True or False. If d['accepted'] is false, the dictionary
             also has a key d['player_to_reinsert'] with the User that was rejected.
         """
-        EMOJI_CONFIRM = '\u2705' #✅
-        EMOJI_REJECT = '\u274C' #❌
-
         match = player1, player2
 
         @asyncio.coroutine
@@ -543,8 +534,7 @@ class Matchmaking(commands.Cog):
 
         return channel
             
-    @commands.command()
-    async def delete_arenas(self, ctx):
+    async def delete_arenas(self):
         for arena in self.arenas:
             await arena.delete()
         self.arena_status = {}
