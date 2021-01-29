@@ -13,7 +13,7 @@ from .matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CONFIRM, 
                     WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE,
                     FRIENDLIES_TIMEOUT)
 
-from .checks.matchmaking_checks import in_their_arena
+from .checks.matchmaking_checks import (in_their_arena, in_tier_channel)
 
 class Matchmaking(commands.Cog):
     
@@ -47,6 +47,7 @@ class Matchmaking(commands.Cog):
             self.tier_channels[tier_name] = channel
 
     @commands.command()
+    @commands.check(in_tier_channel)
     async def friendlies(self, ctx, tier_num=None):
         """
         You can join the list of friendlies with this command.
