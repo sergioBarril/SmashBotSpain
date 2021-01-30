@@ -107,6 +107,11 @@ class Matchmaking(commands.Cog):
         # Matchmaking
         await self.matchmaking(tier_range)
 
+    @friendlies.error
+    async def friendlies_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+
     @commands.command()
     @commands.check(in_their_arena)
     async def ggs(self, ctx):
