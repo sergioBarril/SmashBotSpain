@@ -15,6 +15,7 @@ class SmashBotSpain(commands.Bot):
 
     def __init__(self, command_prefix, intents):
         super().__init__(command_prefix=command_prefix, intents=intents)        
+        self.help_command = None
 
     async def on_ready(self):        
         self.guild = discord.utils.get(self.guilds, name=GUILD)
@@ -27,13 +28,11 @@ class SmashBotSpain(commands.Bot):
         matchmaking = self.get_cog('Matchmaking')
         await matchmaking.setup_matchmaking(guild=self.guild)
         
-        
 intents = discord.Intents.default()  # All but the two privileged ones
 intents.members = True
 
 client = SmashBotSpain(command_prefix=["."], intents=intents)
 client.load_extension("cogs.Matchmaking")
-
-
+client.load_extension("cogs.HelpCommands")
 
 client.run(TOKEN)
