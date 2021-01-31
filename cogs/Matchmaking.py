@@ -46,7 +46,7 @@ class Matchmaking(commands.Cog):
             self.tier_roles[tier_name] = role
             self.tier_channels[tier_name] = channel
 
-    @commands.command()
+    @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(in_tier_channel)
     async def friendlies(self, ctx, tier_num=None):
         """
@@ -62,6 +62,9 @@ class Matchmaking(commands.Cog):
         except AlreadyMatchedException as e:
             return await ctx.send(e)
 
+        # Check Force-tier mode:
+        is_force_tier = ctx.invoked_with == "friendlies-here"
+
         # If .friendlies in #tier-x:
         if tier_num is None:
             channel_name = ctx.channel.name if ctx.guild else None
@@ -71,7 +74,7 @@ class Matchmaking(commands.Cog):
 
         # Validate tiers
         try:
-            tier_range = self.tier_range_validation(tier_role, tier_num)
+            tier_range = self.tier_range_validation(tier_role, tier_num, is_force_tier)
         except TierValidationException as e:
             return await ctx.send(e)
         
@@ -193,14 +196,16 @@ class Matchmaking(commands.Cog):
                 
         return next((role for role in member.roles if role in self.tier_roles.values()), None)
 
-    def tier_range_validation(self, tier_role, limit_tier_num):
+    def tier_range_validation(self, tier_role, limit_tier_num, force_tier = False):
         """
         Given a Tier role and a number from 1 to 4,
         validates the input and returns a range of tiers
         that the player will join.
+
+        If force_tier is True, the tier range will only be limit_tier_num
         """
         if not tier_role:
-            raise TierValidationException("No tienes Tier... Habla con algún admin para que te asigne una.")        
+            raise TierValidationException("No tienes Tier... Habla con algún admin para que te asigne una.")
         
         if limit_tier_num is not None:
             limit_tier_name = f'Tier {limit_tier_num}'
@@ -216,7 +221,10 @@ class Matchmaking(commands.Cog):
         else:
             limit_tier_num = tier_role.name[-1]
 
-        return range(int(tier_role.name[-1]), int(limit_tier_num) + 1)
+        if force_tier:
+            return range(int(limit_tier_num), int(limit_tier_num) + 1)
+        else:
+            return range(int(tier_role.name[-1]), int(limit_tier_num) + 1)
 
     # *************************************
     #       S E A R C H      L I S T
