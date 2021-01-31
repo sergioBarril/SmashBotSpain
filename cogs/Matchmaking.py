@@ -194,7 +194,7 @@ class Matchmaking(commands.Cog):
         else:            
             member = self.guild.get_member(player.id)        
                 
-        return next((role for role in member.roles if role in self.tier_roles.values()), None)
+        return next((role for role in member.roles[::-1] if role in self.tier_roles.values()), None)
 
     def tier_range_validation(self, tier_role, limit_tier_num, force_tier = False):
         """

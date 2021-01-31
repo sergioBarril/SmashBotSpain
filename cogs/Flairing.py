@@ -5,6 +5,8 @@ import unicodedata
 from discord.ext import tasks, commands
 
 from .params.flairing_params import (REGIONS, CHARACTERS, NORMALIZED_CHARACTERS, key_format, normalize_character)
+from .params.matchmaking_params import (TIER_NAMES)
+
 from .checks.flairing_checks import (in_flairing_channel)
 
 
@@ -13,6 +15,7 @@ class Flairing(commands.Cog):
         self.bot = bot
         self.region_roles = {}
         self.character_roles = {}
+        self.tier_roles = {}
 
     async def setup_flairing(self, guild):
         self.guild = guild
@@ -32,6 +35,13 @@ class Flairing(commands.Cog):
                 self.character_roles[character] = new_role
             else:
                 self.character_roles[character] = discord.utils.get(all_roles, name=character)
+
+        for tier_name in TIER_NAMES:
+            if tier_name not in all_roles_names:
+                new_role = await self.guild.create_role(name = tier_name, mentionable = True)
+                self.tier_roles[tier_name] = new_role
+            else:
+                self.tier_roles[tier_name] = discord.utils.get(all_roles, name=tier_name)
     
     @commands.command()
     @commands.check(in_flairing_channel)
@@ -94,5 +104,50 @@ class Flairing(commands.Cog):
         if isinstance(error, commands.CheckFailure):
             pass
 
+    @commands.command()
+    @commands.check(in_flairing_channel)
+    async def tier(self, ctx, *, tier_num = None):
+        player = ctx.author
+        await ctx.message.delete(delay=20)
+
+        # Format check
+        if tier_num is None len(tier_num) != 1 or not tier_num.isdigit():
+            return await ctx.send(f"Así no: simplemente pon `.tier X`, cambiando `X` por un número del 1 al 4.", delete_after=20)        
+        
+        if int(tier_num) not in (1,2,3,4):
+            return await ctx.send(f"Lo siento, pero...¡la Tier {tier_num} no existe!")
+
+        # Get tier
+        real_tier = next((role for role in player.roles[::-1] if role.name in TIER_NAMES), None)        
+        
+        if not real_tier:
+            return await ctx.send(f"¡Pero si no tienes tier aún! Espérate a que algún admin te coloque en tu tier.", delete_after=20)
+        
+        real_tier_num = real_tier.name[-1]
+
+        # Check asked tier
+        if tier_num < real_tier_num:
+            return await ctx.send(f"Estás intentando asignarte el rol de Tier {tier_num}, pero tú eres Tier {real_tier_num}. ¡Solo puedes autoasignarte roles inferiores al tuyo!", delete_after=20)
+        elif tier_num == real_tier_num:
+            return await ctx.send(f"Estás intentando borrarte de la Tier {tier_num}. Es normal perder la confianza en uno a veces, pero si los panelistas te han puesto en Tier {tier_num} será por algo. ¡Así que no te borraré!", delete_after=20)
+        
+        # Add/Delete
+        new_tier_role = self.tier_roles[f'Tier {tier_num}']
+        old_tier_roles = [role for role in player.roles if role.name in TIER_NAMES]
+        
+        if new_tier_role in old_tier_roles:
+            await player.remove_roles(new_tier_role)
+            return await ctx.send(f"Vale, te he quitado el rol de {new_tier_role.name} -- ya no recibirás sus pings.", delete_after=20)
+        else:
+            await player.add_roles(new_tier_role)
+            return await ctx.send(f"Vale, te he añadido el rol de {new_tier_role.name} -- a partir de ahora recibirás sus pings.", delete_after=20)        
+
+    @tier.error
+    async def character_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
+        
 def setup(bot):
     bot.add_cog(Flairing(bot))
