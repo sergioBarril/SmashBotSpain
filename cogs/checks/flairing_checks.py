@@ -1,4 +1,3 @@
-
 from ..params.flairing_params import FLAIRING_CHANNEL_ID
 
 # ***********************
