@@ -1,4 +1,4 @@
-from ..matchmaking_params import TIER_CHANNEL_NAMES
+from ..params.matchmaking_params import TIER_CHANNEL_NAMES
 
 # ***********************
 # ***********************

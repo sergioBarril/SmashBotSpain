@@ -3,7 +3,7 @@ import asyncio
 
 from discord.ext import tasks, commands
 
-from .matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CONFIRM, EMOJI_REJECT, 
+from .params.matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CONFIRM, EMOJI_REJECT, 
                     NUMBER_EMOJIS, LIST_CHANNEL_ID, LIST_MESSAGE_ID,
                     WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE,
                     FRIENDLIES_TIMEOUT)
