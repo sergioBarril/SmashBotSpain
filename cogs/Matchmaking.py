@@ -361,11 +361,12 @@ class Matchmaking(commands.Cog):
 
             #Set Permissions            
             arena_permissions = [arena.set_permissions(player, read_messages=True, send_messages=True) for player in match]
-            await asyncio.gather(*arena_permissions)
+            await asyncio.gather(*arena_permissions)                        
             
-            # Send invites for faster arena access
-            await self.send_invites(arena, player1, player2)
-            
+            # Send arena
+            message_tasks = [player.send(f"Listo, dirígete a {arena.mention}") for player in match]
+            await asyncio.gather(*message_tasks)
+
             await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
             await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.")
 
@@ -504,29 +505,6 @@ class Matchmaking(commands.Cog):
             await asyncio.gather(*remove_reactions)
             await player.send("Ya han dejado de jugar o se ha llenado el hueco, rip. ¡Intenta estar más atento la próxima vez!")
             return
-
-    async def send_invites(self, arena, player1, player2):
-        """
-        Sends an invite link to both players, that will take them faster to the arena.
-        The invite link expires after 25 seconds, and will be then deleted.
-        """
-        invite_link = await arena.create_invite(max_age=25, max_uses=1, REASON="Acceder más rápido al canal")
-        
-        match = player1, player2
-
-        message_tasks = [player.send(f"Listo, dirígete a la #{arena.name}") for player in match]
-        messages = await asyncio.gather(*message_tasks)
-
-        send_invite_tasks = [player.send(invite_link) for player in match]
-        invite_messages = await asyncio.gather(*send_invite_tasks)
-
-        async def delete_invite(invite_message):
-            await asyncio.sleep(25)
-            await invite_message.delete()
-        
-        delete_invite_tasks = [delete_invite(invite) for invite in invite_messages]
-        asyncio.gather(*delete_invite_tasks)
-
 
     #  ***********************************************
     #           A   R   E   N   A   S
