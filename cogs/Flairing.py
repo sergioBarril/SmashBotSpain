@@ -111,7 +111,7 @@ class Flairing(commands.Cog):
         await ctx.message.delete(delay=20)
 
         # Format check
-        if tier_num is None len(tier_num) != 1 or not tier_num.isdigit():
+        if tier_num is None or len(tier_num) != 1 or not tier_num.isdigit():
             return await ctx.send(f"Así no: simplemente pon `.tier X`, cambiando `X` por un número del 1 al 4.", delete_after=20)        
         
         if int(tier_num) not in (1,2,3,4):
