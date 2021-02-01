@@ -15,5 +15,5 @@ def in_their_arena(ctx):
     
     return player in ctx.bot.get_cog("Matchmaking").arena_status[arena.name]
 
-def in_tier_channel(ctx):    
-    return ctx.channel.name in TIER_CHANNEL_NAMES
+def in_tier_channel(ctx):
+    return ctx.message.guild is not None and ctx.channel.name in TIER_CHANNEL_NAMES
