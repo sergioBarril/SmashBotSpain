@@ -45,10 +45,14 @@ class Flairing(commands.Cog):
     
     @commands.command()
     @commands.check(in_flairing_channel)
-    async def region(self, ctx, *, region_name):
+    async def region(self, ctx, *, region_name = None):        
         player = ctx.author
+        await ctx.message.delete(delay=20)
+        
+        if region_name is None:
+            return await ctx.send(f"Así no: simplemente pon `.region X`, cambiando `X` por el nombre de tu región.", delete_after=20)
+        
         region_key = key_format(region_name)
-        await ctx.message.delete(delay = 20)
 
         if region_key not in self.region_roles.keys():            
             return await ctx.send(f"Por ahora no está contemplado {region_name} como región. ¡Asegúrate de que lo hayas escrito bien!", delete_after=20)        
@@ -69,18 +73,16 @@ class Flairing(commands.Cog):
             await player.add_roles(new_region_role)
             return await ctx.send(f"Perfecto, te he quitado el rol de {old_region_roles[0].name} y te he añadido el rol de {new_region_role.name}.", delete_after=20)
         
-    @region.error
-    async def region_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-
     @commands.command(aliases=["main", "second"])
     @commands.check(in_flairing_channel)
-    async def character(self, ctx, *, char_name):
+    async def character(self, ctx, *, char_name=None):
         player = ctx.author
-        character_key = key_format(char_name)
         await ctx.message.delete(delay = 20)
         
+        if char_name is None:
+            return await ctx.send(f"Así no: simplemente pon `.main X`, cambiando `X` por el nombre de tu personaje.", delete_after=20)
+
+        character_key = key_format(char_name)
         normalized_char = normalize_character(char_name)
         
         if not normalized_char:            
@@ -98,11 +100,6 @@ class Flairing(commands.Cog):
         else:
             await player.add_roles(new_char_role)
             return await ctx.send(f"Hecho, te he añadido el rol de {new_char_role.name}.", delete_after=20)
-
-    @character.error
-    async def character_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
 
     @commands.command()
     @commands.check(in_flairing_channel)
@@ -142,6 +139,22 @@ class Flairing(commands.Cog):
             await player.add_roles(new_tier_role)
             return await ctx.send(f"Vale, te he añadido el rol de {new_tier_role.name} -- a partir de ahora recibirás sus pings.", delete_after=20)        
 
+
+
+    @region.error
+    async def region_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
+
+    @character.error
+    async def character_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
+    
     @tier.error
     async def character_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
