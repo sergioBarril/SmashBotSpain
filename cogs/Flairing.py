@@ -64,14 +64,9 @@ class Flairing(commands.Cog):
         if new_region_role in old_region_roles:
             await player.remove_roles(new_region_role)            
             return await ctx.send(f"Vale, te he quitado el rol de {new_region_role.name}.", delete_after=20)
-
-        if len(old_region_roles) != 1:
+        else:
             await player.add_roles(new_region_role)
             return await ctx.send(f"Hecho, te he añadido el rol de {new_region_role.name}.", delete_after=20)
-        else:
-            await player.remove_roles(old_region_roles[0])
-            await player.add_roles(new_region_role)
-            return await ctx.send(f"Perfecto, te he quitado el rol de {old_region_roles[0].name} y te he añadido el rol de {new_region_role.name}.", delete_after=20)
         
     @commands.command(aliases=["main", "second"])
     @commands.check(in_flairing_channel)
