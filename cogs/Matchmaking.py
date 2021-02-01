@@ -368,7 +368,7 @@ class Matchmaking(commands.Cog):
             await asyncio.gather(*message_tasks)
 
             await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
-            await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.")
+            await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")
 
             # Check if there's still someone who can be matched in any tier
             tier_range = range(1, 5)
