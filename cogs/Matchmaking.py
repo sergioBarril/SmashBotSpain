@@ -637,10 +637,18 @@ class Matchmaking(commands.Cog):
         return await invite_task
     
     @commands.command()
+    @commands.has_any_role("Dev","admin")
     async def check_tasks(self, ctx):
         tasks = asyncio.all_tasks()
         tasks_name = [task.get_name() for task in tasks]
         await ctx.send(tasks_name)
+    
+    @check_tasks.error
+    async def check_tasks_error(self, ctx, error):            
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
 
 def setup(bot):
     bot.add_cog(Matchmaking(bot))
