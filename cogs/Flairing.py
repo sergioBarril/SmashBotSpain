@@ -7,7 +7,7 @@ from discord.ext import tasks, commands
 from .params.flairing_params import (REGIONS, CHARACTERS, NORMALIZED_CHARACTERS, key_format, normalize_character)
 from .params.matchmaking_params import (TIER_NAMES)
 
-from .checks.flairing_checks import (in_flairing_channel)
+from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
 
 
 class Flairing(commands.Cog):
@@ -136,7 +136,7 @@ class Flairing(commands.Cog):
 
 
     @commands.command(aliases=["rol"])
-    @commands.check(in_flairing_channel)
+    @commands.check(in_spam_channel)
     async def role(self, ctx, *, role_name):
         await ctx.message.delete(delay=60)
         
@@ -167,7 +167,7 @@ class Flairing(commands.Cog):
 
     
     @commands.command(aliases=["regiones", "regions", "tiers", "mains"])
-    @commands.check(in_flairing_channel)
+    @commands.check(in_spam_channel)
     async def list_role(self, ctx):        
         # Select roles        
         mode = ctx.invoked_with
@@ -228,6 +228,14 @@ class Flairing(commands.Cog):
             pass
         else:
             print(error)
+
+    @list_role.error
+    async def list_role_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
+
 
     @region.error
     async def region_error(self, ctx, error):
