@@ -3,6 +3,7 @@ import asyncio
 import re
 import itertools
 import typing
+from datetime import datetime
 
 from discord.ext import tasks, commands
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
@@ -45,6 +46,8 @@ class Matchmaking(commands.Cog):
             
             self.tier_roles[tier_name] = role
             self.tier_channels[tier_name] = channel
+        
+        self.reset_matchmaking.start()
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(in_tier_channel)
@@ -536,10 +539,7 @@ class Matchmaking(commands.Cog):
             
     async def delete_arenas(self):
         for arena in self.arenas:
-            await arena.delete()
-        self.arena_status = {}
-        self.arenas = []
-        self.arena_invites = {}
+            await self.delete_arena(arena)        
 
     async def delete_arena(self, arena):
         if arena not in self.arenas:
@@ -639,6 +639,33 @@ class Matchmaking(commands.Cog):
             pass
         else:
             print(error)
+
+    # *******************************
+    #           C L E A N   U P
+    # *******************************
+    @tasks.loop(hours=24)
+    async def reset_matchmaking(self):
+        await self.delete_arenas()
+        
+        self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
+        self.confirmation_list = []
+        self.rejected_list = []
+                
+        await self.update_list_message()
+        
+        print("Clean up complete")
+    
+    @reset_matchmaking.before_loop
+    async def before_reset_matchmaking(self):
+        hour, minute = 5, 15
+        now = datetime.now()
+        future = datetime(now.year, now.month, now.day, hour, minute)        
+
+        if now.hour >= hour and now.minute > minute:
+            future += timedelta(days=1)
+
+        delta = (future - now).seconds
+        await asyncio.sleep(delta)
 
 def setup(bot):
     bot.add_cog(Matchmaking(bot))
