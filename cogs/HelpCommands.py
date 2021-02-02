@@ -49,7 +49,19 @@ class HelpCommands(commands.Cog):
         embed.set_image(url="https://i.ytimg.com/vi/83UUsOPq3C0/maxresdefault.jpg")    
         embed.set_footer(text="Matchmaking Help", icon_url=self.footer_image)
 
-        embed.add_field(name="`.friendlies`", value="Escribe `.friendlies` para buscar partida.\n\t- Si lo escribes en el canal de tu tier, se te incluirá en esa cola.\n\t- Si lo escribes en un canal de tier más baja, se te incluirá en todas las colas accesibles hasta esa.\n\n(_Ejemplo: Si eres tier 2 y escribes `.friendlies` en #tier-4, te meteré en la cola de Tier 2, Tier 3 y Tier 4._)\n\nCuando se encuentre match, recibirás un MD pidiendo confirmación, y se abrirá una arena privada para los dos.", inline=False)
+        friendlies_field = """Escribe `.friendlies` para buscar partida.
+            - Si lo escribes en el canal de tu tier, se te incluirá en esa cola.
+            - Si lo escribes en un canal de tier más baja, se te incluirá en todas las colas accesibles hasta esa.\n
+            _(Ejemplo: Si eres tier 2 y escribes `.friendlies` en #tier-4, te meteré en la cola de Tier 2, Tier 3 y Tier 4.)_\n
+            - Si escribes `.friendlies-here` en un canal de tier más baja, se te incluirá **solo** en esa cola.\n
+            _(Ejemplo: Si eres Tier 2 y escribes `.friendlies-here` en #tier-4, te meteré solo en la cola de Tier 4.)_\n
+            Cuando se encuentre match, recibirás un MD pidiendo confirmación, y se abrirá una arena privada para los dos.\n
+            """
+        
+        embed.add_field(name="`.friendlies`", value=friendlies_field, inline=False)
+
+        embed.add_field(name="**Actualizar búsqueda**", inline=False, value="Si empiezas a buscar en una Tier y quieres cambiar de lista, simplemente haz otro comando `.friendlies` donde quieras ahora y ya")
+        
         embed.add_field(name="`.cancel`", value="Escribe `.cancel` para salir de todas las colas de matchmaking.", inline=False)
 
         await ctx.send(embed=embed)
