@@ -558,18 +558,6 @@ class Matchmaking(commands.Cog):
     #           L I S T
     # *******************************
 
-    @commands.command()
-    @commands.has_any_role("Dev","admin")
-    async def send_dummy_message(self, ctx):
-        return await ctx.send("a")
-    
-    @send_dummy_message.error        
-    async def send_dumy_message_error(self, ctx, error):            
-        if isinstance(error, commands.CheckFailure):
-            pass
-        else:
-            print(error)
-
     async def update_list_message(self):        
         response = "**__Friendlies list:__**\n"
         
