@@ -135,6 +135,42 @@ class Flairing(commands.Cog):
             return await ctx.send(f"Vale, te he añadido el rol de {new_tier_role.name} -- a partir de ahora recibirás sus pings.", delete_after=20)        
 
 
+    @commands.command()
+    @commands.check(in_flairing_channel)
+    async def listroles(self, ctx, *,role_name):
+        await ctx.message.delete(delay=60)
+        
+        # Get role        
+        role = None
+        
+        role_key = key_format(role_name)
+        character_key = normalize_character(role_name)
+
+        if role_key.capitalize() in self.tier_roles.keys():
+            role = self.tier_roles[role_key.capitalize()]
+        elif role_key in self.region_roles.keys():
+            role = self.region_roles[role_key]        
+        elif character_key:
+            role = self.character_roles[character_key]
+        else:
+            role = discord.utils.get(ctx.guild.roles, name=role_name)
+
+        if role is None:
+            return await ctx.send(f"No existe ese rol... ¿lo has escrito bien?", delete_after=60)    
+
+        member_amount = len(role.members)
+
+        if member_amount == 0:
+            return await ctx.send(f"No hay nadie con el rol {role.name}.", delete_after=60)
+                
+        return await ctx.send(f"**{role.name}** [{member_amount}]: {', '.join([member.name for member in role.members])}", delete_after=60)
+
+    @listroles.error
+    async def listroles_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
 
     @region.error
     async def region_error(self, ctx, error):
