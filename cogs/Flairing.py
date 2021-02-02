@@ -193,16 +193,34 @@ class Flairing(commands.Cog):
         elif mode == "regiones" or mode == "mains":
             role_list.sort(key=lambda role : len(role.members), reverse=True)
 
+        # If showing tiers, show only their true tier, without counting
+        # the role for pings.
+        if mode == "tiers":
+            all_members = []            
+            member_lists = {role.name : [] for role in role_list}
+            
+            for role in role_list[:]:
+                for member in role.members:                    
+                    if member not in all_members:
+                        all_members.append(member)
+                        member_lists[role.name].append(member)
+                
+                if not member_lists[role.name]:
+                    role_list.remove(role)
+        else:
+            member_lists = {role.name : role.members for role in role_list}
+                        
         # Build the message
         header = f"**__{mode.upper()}__**\n"
         messages = []
         
         for role in role_list:
             role_message = ""
-            num_members = len(role.members)
+            members = member_lists[role.name]
+            num_members = len(members)
 
             role_message += f"**{role.name}** [{num_members}]:\n"
-            role_message += f"```{', '.join([member.name for member in role.members])}```\n"
+            role_message += f"```{', '.join([member.name for member in members])}```\n"
             
             messages.append(role_message)
         
