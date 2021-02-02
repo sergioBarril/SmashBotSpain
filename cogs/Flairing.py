@@ -135,9 +135,9 @@ class Flairing(commands.Cog):
             return await ctx.send(f"Vale, te he añadido el rol de {new_tier_role.name} -- a partir de ahora recibirás sus pings.", delete_after=20)        
 
 
-    @commands.command()
+    @commands.command(aliases=["rol"])
     @commands.check(in_flairing_channel)
-    async def listroles(self, ctx, *,role_name):
+    async def role(self, ctx, *, role_name):
         await ctx.message.delete(delay=60)
         
         # Get role        
@@ -163,10 +163,67 @@ class Flairing(commands.Cog):
         if member_amount == 0:
             return await ctx.send(f"No hay nadie con el rol {role.name}.", delete_after=60)
                 
-        return await ctx.send(f"**{role.name}** [{member_amount}]: {', '.join([member.name for member in role.members])}", delete_after=60)
+        return await ctx.send(f"**{role.name}** [{member_amount}]:\n```{', '.join([member.name for member in role.members])}```", delete_after=60)
 
-    @listroles.error
-    async def listroles_error(self, ctx, error):
+    
+    @commands.command(aliases=["regiones", "regions", "tiers", "mains"])
+    @commands.check(in_flairing_channel)
+    async def list_role(self, ctx):        
+        # Select roles        
+        mode = ctx.invoked_with
+        if mode == 'list_role':
+            return None
+        if mode == "regions":
+            mode = "regiones"        
+        
+        roles = { 
+            "regiones" : self.region_roles,
+            "tiers" : self.tier_roles,
+            "mains" : self.character_roles
+        }
+
+        role_list = [role for role in roles[mode].values() if role.members]        
+        if not role_list:
+            return await ctx.send(f"Nadie tiene un rol de la categoría **{mode.capitalize()}**")
+
+        # Sort the list
+        if mode == "tiers":
+            role_list.sort(key=lambda role : role.name)
+        
+        elif mode == "regiones" or mode == "mains":
+            role_list.sort(key=lambda role : len(role.members), reverse=True)
+
+        # Build the message
+        header = f"**__{mode.upper()}__**\n"
+        messages = []
+        
+        for role in role_list:
+            role_message = ""
+            num_members = len(role.members)
+
+            role_message += f"**{role.name}** [{num_members}]:\n"
+            role_message += f"```{', '.join([member.name for member in role.members])}```\n"
+            
+            messages.append(role_message)
+        
+        # Join full message in n messages (if needed)
+        full_message = [header]
+        message_index = 0
+
+        for message in messages:
+            if len(full_message[message_index]) + len(message) >= 2000:
+                message_index += 1
+                full_message[message_index] = ""
+            
+            full_message[message_index] += message
+
+        # Send the message
+        for message in full_message:
+            await ctx.send(message)
+
+
+    @role.error
+    async def role_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
         else:
