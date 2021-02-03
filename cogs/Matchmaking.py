@@ -318,10 +318,12 @@ class Matchmaking(commands.Cog):
     #          M  A  T  C  H  M  A  K  I  N  G
     # ************************************************
 
-    async def matchmaking(self, tier_range = range(1, 5)):
+    async def matchmaking(self, tier_range = range(1, 5)):        
         # MATCH WHILE
+        is_reinserted = False
         while match := self.is_match_possible(tier_range):
-            player1, player2 = match
+            is_reinserted = False
+            player1, player2 = match            
             
             # Remove from all lists
             asyncio.gather(*[self.remove_from_search_list(player, range(1, 5)) for player in match])            
@@ -348,6 +350,7 @@ class Matchmaking(commands.Cog):
 
                 if await self.add_to_search_list(player_to_reinsert, tier_range):
                     await player_to_reinsert.send(f"Te he puesto otra vez en la cola de {tier.name}")
+                    is_reinserted = True
                 continue
 
             # Get and lock an arena
@@ -372,7 +375,10 @@ class Matchmaking(commands.Cog):
 
             # Check if there's still someone who can be matched in any tier
             tier_range = range(1, 5)
-
+        
+        if is_reinserted:
+            await self.tier_channels[tier.name].send(f"Atención {tier.mention}, ¡**{player_to_reinsert.nickname()}** sigue buscando rival!")
+    
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
     #  ***********************************************
