@@ -163,7 +163,7 @@ class Flairing(commands.Cog):
         if member_amount == 0:
             return await ctx.send(f"No hay nadie con el rol {role.name}.", delete_after=60)
                 
-        return await ctx.send(f"**{role.name}** [{member_amount}]:\n```{', '.join([member.name for member in role.members])}```", delete_after=60)
+        return await ctx.send(f"**{role.name}** [{member_amount}]:\n```{', '.join([member.nickname() for member in role.members])}```", delete_after=60)
 
     
     @commands.command(aliases=["regiones", "regions", "tiers", "mains"])
@@ -220,7 +220,7 @@ class Flairing(commands.Cog):
             num_members = len(members)
 
             role_message += f"**{role.name}** [{num_members}]:\n"
-            role_message += f"```{', '.join([member.name for member in members])}```\n"
+            role_message += f"```{', '.join([member.nickname() for member in members])}```\n"
             
             messages.append(role_message)
         

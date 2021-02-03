@@ -34,6 +34,7 @@ intents = discord.Intents.default()  # All but the two privileged ones
 intents.members = True
 
 client = SmashBotSpain(command_prefix=["."], intents=intents)
+client.load_extension("extensions.member_nickname")
 client.load_extension("cogs.Matchmaking")
 client.load_extension("cogs.HelpCommands")
 client.load_extension("cogs.Flairing")

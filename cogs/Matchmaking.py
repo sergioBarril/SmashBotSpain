@@ -98,7 +98,7 @@ class Matchmaking(commands.Cog):
             for tier_num in tiers_added:  
                 tier_role = self.tier_roles[f'Tier {tier_num}']
                 tier_channel = self.tier_channels[f'Tier {tier_num}']
-                mention_message = f"Atención {tier_role.mention}, ¡{ctx.author.name} busca rival!"
+                mention_message = f"Atención {tier_role.mention}, ¡**{ctx.author.nickname()}** busca rival!"
 
                 tier_mention_tasks.append(tier_channel.send(mention_message))            
             if tier_mention_tasks:
@@ -110,7 +110,7 @@ class Matchmaking(commands.Cog):
                 else:
                     tiers_removed_str = f"las siguientes tiers: {tiers_removed_join}"                
                 
-                await ctx.send(f"Vale {player.name}, has dejado de buscar en {tiers_removed_str}.")
+                await ctx.send(f"Vale {player.nickname()}, has dejado de buscar en {tiers_removed_str}.")
         
         # Matchmaking
         await self.matchmaking(tier_range)
@@ -130,7 +130,7 @@ class Matchmaking(commands.Cog):
         arena_players = self.arena_status[arena.name]
 
         if len(arena_players) > 2:
-            await ctx.send(f"GGs, {ctx.author.name} lo deja por hoy.")
+            await ctx.send(f"GGs, **{ctx.author.nickname()}** lo deja por hoy.")
             await self.remove_arena_permissions(player, arena)            
             arena_players.remove(player)
         else:
@@ -155,7 +155,7 @@ class Matchmaking(commands.Cog):
         has_removed = await self.remove_from_search_list(player, range(1, 5))
         
         if has_removed:
-            await ctx.send(f"Vale {player.name}, te saco de la cola. ¡Hasta pronto!")
+            await ctx.send(f"Vale **{player.nickname()}**, te saco de la cola. ¡Hasta pronto!")
         else:
             await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
 
@@ -180,14 +180,14 @@ class Matchmaking(commands.Cog):
         searched_tiers = [i for i in range(1, 5) if guest in self.search_list[f'Tier {i}']]
 
         if not searched_tiers:
-            return await ctx.send(f"**{guest.name}** no está buscando partidas ahora mismo... decidle que haga `.friendlies` primero.")
+            return await ctx.send(f"**{guest.nickname()}** no está buscando partidas ahora mismo... decidle que haga `.friendlies` primero.")
         
         min_search_tier = searched_tiers[-1]
 
         try:
             tier_range = self.tier_range_validation(host_tier, min_search_tier)
         except TierValidationException as e:
-            return await ctx.send(f"No parece que **{guest.name}** esté buscando partida de tu tier o inferior.")
+            return await ctx.send(f"No parece que **{guest.nickname()}** esté buscando partida de tu tier o inferior.")
 
         host1, host2 = self.arena_status[arena.name]
         
@@ -392,7 +392,7 @@ class Matchmaking(commands.Cog):
 
         @asyncio.coroutine
         async def send_confirmation(player1, player2):
-            return await player1.send(f"¡Match encontrado! {player1.mention}, te toca contra **{player2.name}**. ¿Aceptas?")
+            return await player1.send(f"¡Match encontrado! {player1.mention}, te toca contra **{player2.nickname()}**. ¿Aceptas?")
                 
         # Send confirmation
         task1 = asyncio.create_task(send_confirmation(player1, player2))
@@ -439,9 +439,9 @@ class Matchmaking(commands.Cog):
             exception_messages = {}
             
             # Different messages for the exceptions
-            rejected_message = f"**{e.player.name}** ha rechazado el match... ¿en otro momento, quizás?"
+            rejected_message = f"**{e.player.nickname()}** ha rechazado el match... ¿en otro momento, quizás?"
             rejecter_message = f"Vale, match rechazado."
-            timeouted_message = f"**{e.player.name}** no responde... ¿se habrá quedado dormido?" 
+            timeouted_message = f"**{e.player.nickname()}** no responde... ¿se habrá quedado dormido?" 
             timeouter_message = f"Parece que no hay nadie en casa... El match ha sido cancelado, vuelve a intentarlo e intenta estar atento."
 
             exception_messages[RejectedException.REASON] = [rejected_message, rejecter_message]
@@ -459,7 +459,7 @@ class Matchmaking(commands.Cog):
 
 
     async def confirm_invite(self, host1, host2, player, arena):
-        message = await player.send(f"**{host1.name}** y **{host2.name}** te invitan a jugar con ellos en su arena. ¿Aceptas?")
+        message = await player.send(f"**{host1.nickname()}** y **{host2.nickname()}** te invitan a jugar con ellos en su arena. ¿Aceptas?")
 
         # React
         await asyncio.gather(message.add_reaction(EMOJI_CONFIRM), message.add_reaction(EMOJI_REJECT))
@@ -486,7 +486,7 @@ class Matchmaking(commands.Cog):
             
             if str(emoji) == EMOJI_REJECT:
                 await player.send(f"Vale, sin problema.")
-                await arena.send(f"**{player.name}** ha rechazado la invitación a la arena.")
+                await arena.send(f"**{player.nickname()}** ha rechazado la invitación a la arena.")
             else:
                 has_removed = await self.remove_from_search_list(player, range(1, 5))
                 self.arena_status[arena.name].append(player)
@@ -565,16 +565,16 @@ class Matchmaking(commands.Cog):
         response = ""
         
         for tier in TIER_NAMES:
-            players = ", ".join([player.name for player in self.search_list[tier]])
+            players = ", ".join([player.nickname() for player in self.search_list[tier]])
             players = players if players else " "
             response += f"**{tier}**:\n```{players}```\n"
         
         response += f"**ARENAS:**\n"
         for match in self.arena_status.values():            
-            match_message = f"**{match[0].name}** ({self.get_tier(match[0]).name})"
+            match_message = f"**{match[0].nickname()}** ({self.get_tier(match[0]).name})"
             
             for player in match[1:]:
-                match_message += f" vs. **{player.name}** ({self.get_tier(player).name})"
+                match_message += f" vs. **{player.nickname()}** ({self.get_tier(player).name})"
 
             response += f"{match_message}\n"                    
         
@@ -603,7 +603,7 @@ class Matchmaking(commands.Cog):
             return await ctx.send("No hay nadie buscando partida.")
 
         for i, player in enumerate(players, start=1):
-            response += f"{i}. {player.name} ({self.get_tier(player).name})\n"
+            response += f"{i}. {player.nickname()} ({self.get_tier(player).name})\n"
         
         message = await arena.send(response)
         
