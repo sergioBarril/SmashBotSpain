@@ -1,5 +1,9 @@
 import unicodedata
-from .dev_params import PROD_MODE
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+PROD_MODE = os.getenv('PROD_MODE') == "YES"
 
 FLAIRING_CHANNEL_ID = 805889422151122964 if PROD_MODE else 805511941094113291
 SPAM_CHANNEL_ID = 806240906784800808 if PROD_MODE else 806239848612364339
