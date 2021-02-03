@@ -1,1 +1,1 @@
-PROD_MODE = False
+PROD_MODE = True
