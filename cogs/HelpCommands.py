@@ -6,7 +6,7 @@ from discord.ext import tasks, commands
 from .params.flairing_params import (REGIONS)
 
 from .checks.matchmaking_checks import (in_their_arena, in_tier_channel)
-from .checks.flairing_checks import (in_flairing_channel)
+from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
 
 class HelpCommands(commands.Cog):
     def __init__(self, bot):
@@ -15,8 +15,11 @@ class HelpCommands(commands.Cog):
     
     @commands.command()
     async def help(self, ctx, arg = None):
-        if arg is None and not in_tier_channel(ctx) and not in_their_arena(ctx) and not in_flairing_channel(ctx):
-            return await self.default_help(ctx)        
+        is_default = not in_tier_channel(ctx) and not in_their_arena(ctx) and not in_flairing_channel(ctx)
+        is_default = is_default and not in_spam_channel(ctx)
+        
+        if arg is None and is_default:
+            return await self.default_help(ctx)
         
         if arg is None:
             arg = ''
@@ -29,6 +32,9 @@ class HelpCommands(commands.Cog):
         
         if in_flairing_channel(ctx) or arg.lower() == 'roles':
             return await self.flairing_help(ctx)
+        
+        if in_spam_channel(ctx) or arg.lower() == 'role-list':
+            return await self.spam_help(ctx)
     
     async def default_help(self, ctx):
         embed = discord.Embed(title="Smash Bot Spain", colour=discord.Colour(0x9919e1), description="Escribe el comando .help en los canales relevantes para ver la descripción de los comandos (o `.help matchmaking`, por ejemplo, para ver los comandos de matchmaking).")
@@ -84,6 +90,15 @@ class HelpCommands(commands.Cog):
         embed.add_field(name="`.main`", inline=False, value=f"El comando `.main` (o `.second`, que hace exactamente lo mismo) te permite añadir el rol de tu personaje.\nLos roles están en inglés, pero en principio podéis poner el nombre en castellano, y poner nombres alternativos mientras no desfaséis mucho.\n\n_Ejemplo: `.main palu`_\n")
         embed.add_field(name="`.tier`", inline=False, value=f"El comando `.tier` seguido de un número del 2 al 4 te asignará el rol de esa Tier, para así poder recibir sus pings.\nNo puedes ni quitarte tu propia tier, ni autoasignarte una tier superior.\n\n_Ejemplo: `.tier 4`_\n")
         embed.add_field(name="Eliminar roles", inline=False, value=f"Usando uno de estos comandos cuando ya tenéis el rol, os lo quitará.\n\n_Ejemplo: Si tengo el rol de main Mario y escribo `.main Mario`, se me quitará el rol._")
+        await ctx.send(embed=embed)
+
+    async def spam_help(self, ctx):
+        embed = discord.Embed(title="Lista de roles:", colour=discord.Colour(0x9919e1), description="Actualmente hay dos roles que podéis usar en el canal de spam: ")
+        embed.set_footer(text="Role List Help", icon_url=self.footer_image)
+
+        embed.add_field(name="`.role`", inline=False, value=f"El comando `.role` o `.rol` seguido del nombre del rol (no importan mayúsculas ni minúsculas, y con los pjs se aceptan cosas como gaw, ddd o palu) os dará una lista con todos los jugadores con ese rol.")
+        embed.add_field(name="`.regiones`, `.tiers`, `.mains`", inline=False, value=f"Escribid cualquiera de estos comandos para obtener una lista con cada rol de esa categoría (regiones, personajes o tiers).")
+        
         await ctx.send(embed=embed)
 
 def setup(bot):
