@@ -11,7 +11,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = int(os.getenv('DISCORD_GUILD'))
 
 class SmashBotSpain(commands.Bot):
-    VERSION =  "v1.0"
+    VERSION =  "v1.1"
 
     def __init__(self, command_prefix, intents):
         super().__init__(command_prefix=command_prefix, intents=intents)        
