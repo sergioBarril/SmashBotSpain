@@ -575,7 +575,8 @@ class Matchmaking(commands.Cog):
             players = players if players else " "
             response += f"**{tier}**:\n```{players}```\n"
         
-        response += f"**ARENAS:**\n"
+        if self.arena_status.values():
+            response += f"**ARENAS:**\n"
         for match in self.arena_status.values():            
             match_message = f"**{match[0].nickname()}** ({self.get_tier(match[0]).name})"
             
