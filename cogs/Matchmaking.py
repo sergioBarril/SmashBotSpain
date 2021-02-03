@@ -25,6 +25,7 @@ class Matchmaking(commands.Cog):
         self.rejected_list = []
 
         self.mention_messages = {}
+        self.current_search = {}                
         
         self.arena_status = {}
         self.arena_invites = {}
@@ -93,6 +94,9 @@ class Matchmaking(commands.Cog):
 
         if not tiers_added and not tiers_removed:
             return await ctx.send(f"Pero {player.mention}, ¡si ya estabas en la cola!")
+        
+        # Update current_search record
+        self.current_search[player] = tier_range
         
         if not self.is_match_possible(tier_range):
             # Mention @Tier X
@@ -186,6 +190,9 @@ class Matchmaking(commands.Cog):
             for message in self.mention_messages.get(player, []):
                 await message.delete()            
             self.mention_messages.pop(player, None)
+
+            # Delete search record
+            self.current_search.pop(player, None)
         
         else:
             await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
@@ -374,13 +381,13 @@ class Matchmaking(commands.Cog):
                 if confirmation['reason'] == RejectedException.REASON:
                     self.rejected_list.append({player1, player2})
                     asyncio.create_task(self.remove_from_rejected_list({player1, player2}))
+                
+                tier_range = self.current_search[player_to_reinsert]
+                tiers_added = await self.add_to_search_list(player_to_reinsert, tier_range)                
 
-                tier = self.get_tier(player_to_reinsert)
-                tier_num = int(tier.name[-1])
-                tier_range = range(tier_num, tier_num + 1)
-
-                if await self.add_to_search_list(player_to_reinsert, tier_range):
-                    await player_to_reinsert.send(f"Te he puesto otra vez en la cola de {tier.name}")
+                if tiers_added:
+                    reinsert_message = f"Te he puesto otra vez en la cola de: {', '.join([f'Tier {tier_num}' for tier_num in tiers_added])}"
+                    await player_to_reinsert.send(reinsert_message)
                     is_reinserted = True
                 continue
 
@@ -388,11 +395,7 @@ class Matchmaking(commands.Cog):
             arena = await self.make_arena()
             self.arena_status[arena.name] = match
             await self.update_list_message()
-
-            # Edit messages
-            edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
-            await asyncio.gather(*[message.edit(content=edited_text) for player in match for message in self.mention_messages.get(player, [])])
-            
+                        
             # Remove them from the confirmation list
             self.confirmation_list.remove(player1)
             self.confirmation_list.remove(player2)
@@ -404,16 +407,26 @@ class Matchmaking(commands.Cog):
             # Send arena
             message_tasks = [player.send(f"Listo, dirígete a {arena.mention}") for player in match]
             await asyncio.gather(*message_tasks)
-
+            
             await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
             await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")
+
+            # Edit messages
+            edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
+            await asyncio.gather(*[message.edit(content=edited_text) for player in match for message in self.mention_messages.get(player, [])])
+
+            # Delete current_search from both players
+            self.current_search.pop(player1, None)
+            self.current_search.pop(player2, None)
 
             # Check if there's still someone who can be matched in any tier
             tier_range = range(1, 5)
         
         if is_reinserted:
-            message = await self.tier_channels[tier.name].send(f"Atención {tier.mention}, ¡**{player_to_reinsert.nickname()}** sigue buscando rival!")
-            self.mention_message[player_to_reinsert].append(message)
+            for tier_num in tier_range:
+                tier = self.tier_roles[f'Tier {tier_num}']
+                message = await self.tier_channels[tier.name].send(f"Atención {tier.mention}, ¡**{player_to_reinsert.nickname()}** sigue buscando rival!")
+                self.mention_messages[player_to_reinsert].append(message)
     
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
@@ -549,8 +562,12 @@ class Matchmaking(commands.Cog):
                 edited_text = f"**{player.nickname(guild=self.guild)}** está jugando con **{host1.nickname()}** y **{host2.nickname()}**."
                 await asyncio.gather(*[message.edit(content=edited_text) for message in self.mention_messages.get(player, [])])                
 
+                # Remove current_search
+                self.current_search.pop(player, None)
+
                 await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
                 await player.send(f"Perfecto {player.mention}, ¡dirígete a {arena.mention} y saluda a tus anfitriones!")
+
         except asyncio.CancelledError as e:
             remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
             await asyncio.gather(*remove_reactions)
