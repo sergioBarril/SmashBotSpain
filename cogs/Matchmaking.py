@@ -426,6 +426,8 @@ class Matchmaking(commands.Cog):
             for tier_num in tier_range:
                 tier = self.tier_roles[f'Tier {tier_num}']
                 message = await self.tier_channels[tier.name].send(f"Atención {tier.mention}, ¡**{player_to_reinsert.nickname()}** sigue buscando rival!")
+                if player_to_reinsert not in self.mention_messages.keys():
+                    self.mention_messages[player_to_reinsert] = []
                 self.mention_messages[player_to_reinsert].append(message)
     
     #  ***********************************************
