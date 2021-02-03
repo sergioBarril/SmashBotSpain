@@ -1,4 +1,8 @@
-from .dev_params import PROD_MODE
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+PROD_MODE = os.getenv('PROD_MODE') == "YES"
 
 LIST_CHANNEL_ID = 805889644897632287 if PROD_MODE else 788119086512865311
 LIST_MESSAGE_ID = 805928764172926987 if PROD_MODE else 805971127478386748

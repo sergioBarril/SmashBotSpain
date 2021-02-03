@@ -7,7 +7,7 @@ from discord.ext import tasks, commands
 from .params.flairing_params import (REGIONS, CHARACTERS, NORMALIZED_CHARACTERS, key_format, normalize_character)
 from .params.matchmaking_params import (TIER_NAMES)
 
-from .checks.flairing_checks import (in_flairing_channel)
+from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
 
 
 class Flairing(commands.Cog):
@@ -134,6 +134,125 @@ class Flairing(commands.Cog):
             await player.add_roles(new_tier_role)
             return await ctx.send(f"Vale, te he añadido el rol de {new_tier_role.name} -- a partir de ahora recibirás sus pings.", delete_after=20)        
 
+
+    @commands.command(aliases=["rol"])
+    @commands.check(in_spam_channel)
+    async def role(self, ctx, *, role_name):
+        await ctx.message.delete(delay=60)
+        
+        # Get role        
+        role = None
+        
+        role_key = key_format(role_name)
+        character_key = normalize_character(role_name)
+
+        if role_key.capitalize() in self.tier_roles.keys():
+            role = self.tier_roles[role_key.capitalize()]
+        elif role_key in self.region_roles.keys():
+            role = self.region_roles[role_key]        
+        elif character_key:
+            role = self.character_roles[character_key]
+        else:
+            role = discord.utils.get(ctx.guild.roles, name=role_name)
+
+        if role is None:
+            return await ctx.send(f"No existe ese rol... ¿lo has escrito bien?", delete_after=60)    
+
+        member_amount = len(role.members)
+
+        if member_amount == 0:
+            return await ctx.send(f"No hay nadie con el rol {role.name}.", delete_after=60)
+                
+        return await ctx.send(f"**{role.name}** [{member_amount}]:\n```{', '.join([member.nickname() for member in role.members])}```", delete_after=60)
+
+    
+    @commands.command(aliases=["regiones", "regions", "tiers", "mains"])
+    @commands.check(in_spam_channel)
+    async def list_role(self, ctx):        
+        # Select roles        
+        mode = ctx.invoked_with
+        if mode == 'list_role':
+            return None
+        if mode == "regions":
+            mode = "regiones"        
+        
+        roles = { 
+            "regiones" : self.region_roles,
+            "tiers" : self.tier_roles,
+            "mains" : self.character_roles
+        }
+
+        role_list = [role for role in roles[mode].values() if role.members]        
+        if not role_list:
+            return await ctx.send(f"Nadie tiene un rol de la categoría **{mode.capitalize()}**")
+
+        # Sort the list
+        if mode == "tiers":
+            role_list.sort(key=lambda role : role.name)
+        
+        elif mode == "regiones" or mode == "mains":
+            role_list.sort(key=lambda role : len(role.members), reverse=True)
+
+        # If showing tiers, show only their true tier, without counting
+        # the role for pings.
+        if mode == "tiers":
+            all_members = []            
+            member_lists = {role.name : [] for role in role_list}
+            
+            for role in role_list[:]:
+                for member in role.members:                    
+                    if member not in all_members:
+                        all_members.append(member)
+                        member_lists[role.name].append(member)
+                
+                if not member_lists[role.name]:
+                    role_list.remove(role)
+        else:
+            member_lists = {role.name : role.members for role in role_list}
+                        
+        # Build the message
+        header = f"**__{mode.upper()}__**\n"
+        messages = []
+        
+        for role in role_list:
+            role_message = ""
+            members = member_lists[role.name]
+            num_members = len(members)
+
+            role_message += f"**{role.name}** [{num_members}]:\n"
+            role_message += f"```{', '.join([member.nickname() for member in members])}```\n"
+            
+            messages.append(role_message)
+        
+        # Join full message in n messages (if needed)
+        full_message = [header]
+        message_index = 0
+
+        for message in messages:
+            if len(full_message[message_index]) + len(message) >= 2000:
+                message_index += 1
+                full_message[message_index] = ""
+            
+            full_message[message_index] += message
+
+        # Send the message
+        for message in full_message:
+            await ctx.send(message)
+
+
+    @role.error
+    async def role_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
+
+    @list_role.error
+    async def list_role_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        else:
+            print(error)
 
 
     @region.error

@@ -8,17 +8,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-GUILD = os.getenv('DISCORD_GUILD')
+GUILD_ID = int(os.getenv('DISCORD_GUILD'))
 
 class SmashBotSpain(commands.Bot):
-    VERSION =  "v1.0"
+    VERSION =  "v1.1"
 
     def __init__(self, command_prefix, intents):
         super().__init__(command_prefix=command_prefix, intents=intents)        
         self.help_command = None
 
-    async def on_ready(self):        
-        self.guild = discord.utils.get(self.guilds, name=GUILD)
+    async def on_ready(self):
+        self.guild = self.get_guild(GUILD_ID)
         
         print(
             f'{client.user} is connected to the following guild:\n'
@@ -34,6 +34,7 @@ intents = discord.Intents.default()  # All but the two privileged ones
 intents.members = True
 
 client = SmashBotSpain(command_prefix=["."], intents=intents)
+client.load_extension("extensions.member_nickname")
 client.load_extension("cogs.Matchmaking")
 client.load_extension("cogs.HelpCommands")
 client.load_extension("cogs.Flairing")
