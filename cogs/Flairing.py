@@ -231,7 +231,7 @@ class Flairing(commands.Cog):
         for message in messages:
             if len(full_message[message_index]) + len(message) >= 2000:
                 message_index += 1
-                full_message[message_index] = ""
+                full_message.append("")
             
             full_message[message_index] += message
 
