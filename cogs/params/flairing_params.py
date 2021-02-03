@@ -23,10 +23,12 @@ REGIONS = [
     "Euskadi",
     "Extremadura",
     "Galicia",
+    "Guadalajara",
     "León",
     "Madrid",
     "Murcia",
     "La Rioja",
+    "Salamanca",
     "Toledo",
     "Valencia",
     "Valladolid"
