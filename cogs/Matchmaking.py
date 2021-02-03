@@ -23,6 +23,8 @@ class Matchmaking(commands.Cog):
         self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
         self.confirmation_list = []
         self.rejected_list = []
+
+        self.mention_messages = {}
         
         self.arena_status = {}
         self.arena_invites = {}
@@ -98,11 +100,13 @@ class Matchmaking(commands.Cog):
             for tier_num in tiers_added:  
                 tier_role = self.tier_roles[f'Tier {tier_num}']
                 tier_channel = self.tier_channels[f'Tier {tier_num}']
-                mention_message = f"Atención {tier_role.mention}, ¡**{ctx.author.nickname()}** busca rival!"
+                mention_message = f"Atención {tier_role.mention}, ¡**{ctx.author.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar."
 
                 tier_mention_tasks.append(tier_channel.send(mention_message))            
             if tier_mention_tasks:
-                await asyncio.gather(*tier_mention_tasks)
+                if player not in self.mention_messages.keys():
+                    self.mention_messages[player] = []
+                self.mention_messages[player] += await asyncio.gather(*tier_mention_tasks)
             else:
                 tiers_removed_join = ", ".join([f"Tier {i}" for i in tiers_removed])
                 if len(tiers_removed) == 1:
@@ -131,11 +135,32 @@ class Matchmaking(commands.Cog):
 
         if len(arena_players) > 2:
             await ctx.send(f"GGs, **{ctx.author.nickname()}** lo deja por hoy.")
-            await self.remove_arena_permissions(player, arena)            
+            await self.remove_arena_permissions(player, arena)
+
+            # Edit leaver message
+            edited_text = f"**{player.nickname()}** ya ha terminado de jugar."
+            await asyncio.gather(*[message.edit(content=edited_text) for message in self.mention_messages.get(player, [])])
+            self.mention_messages.pop(player, None)
             arena_players.remove(player)
+
+            # Edit other messages
+            player1, player2 = arena_players
+            edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
+            await asyncio.gather(*[message.edit(content=edited_text) for member in arena_players for message in self.mention_messages.get(member, [])])        
+        
         else:
             await ctx.send("GGs, ¡gracias por jugar!")                
-        
+                    
+            # Edit messages
+            match = arena_players
+            player1, player2 = match            
+
+            edited_text = f"**{player1.nickname()}** y **{player2.nickname()}** ya han terminado de jugar."
+            await asyncio.gather(*[message.edit(content=edited_text) for member in match for message in self.mention_messages.get(member, [])])
+            
+            for member in match:
+                self.mention_messages.pop(player, None)
+            
             # Delete arena
             await asyncio.sleep(GGS_ARENA_COUNTDOWN)
             await self.delete_arena(arena)
@@ -156,6 +181,12 @@ class Matchmaking(commands.Cog):
         
         if has_removed:
             await ctx.send(f"Vale **{player.nickname()}**, te saco de la cola. ¡Hasta pronto!")
+            
+            # Delete mention messages
+            for message in self.mention_messages.get(player, []):
+                await message.delete()            
+            self.mention_messages.pop(player, None)
+        
         else:
             await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
 
@@ -357,6 +388,10 @@ class Matchmaking(commands.Cog):
             arena = await self.make_arena()
             self.arena_status[arena.name] = match
             await self.update_list_message()
+
+            # Edit messages
+            edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
+            await asyncio.gather(*[message.edit(content=edited_text) for player in match for message in self.mention_messages.get(player, [])])
             
             # Remove them from the confirmation list
             self.confirmation_list.remove(player1)
@@ -377,7 +412,8 @@ class Matchmaking(commands.Cog):
             tier_range = range(1, 5)
         
         if is_reinserted:
-            await self.tier_channels[tier.name].send(f"Atención {tier.mention}, ¡**{player_to_reinsert.nickname()}** sigue buscando rival!")
+            message = await self.tier_channels[tier.name].send(f"Atención {tier.mention}, ¡**{player_to_reinsert.nickname()}** sigue buscando rival!")
+            self.mention_message[player_to_reinsert].append(message)
     
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
@@ -507,8 +543,12 @@ class Matchmaking(commands.Cog):
                         
                         if invite_name != current_task_name:
                             invite.cancel()
-                    self.arena_invites[arena.name] = []             
-                
+                    self.arena_invites[arena.name] = []
+                                
+                # Edit messages
+                edited_text = f"**{player.nickname(guild=self.guild)}** está jugando con **{host1.nickname()}** y **{host2.nickname()}**."
+                await asyncio.gather(*[message.edit(content=edited_text) for message in self.mention_messages.get(player, [])])                
+
                 await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
                 await player.send(f"Perfecto {player.mention}, ¡dirígete a {arena.mention} y saluda a tus anfitriones!")
         except asyncio.CancelledError as e:
