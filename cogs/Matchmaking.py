@@ -3,7 +3,7 @@ import asyncio
 import re
 import itertools
 import typing
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from discord.ext import tasks, commands
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
@@ -23,14 +23,15 @@ class Matchmaking(commands.Cog):
         self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
         self.confirmation_list = []
         self.rejected_list = []
-    
-    async def setup_matchmaking(self, guild):
-        self.guild = guild
         
-        self.arenas =  discord.utils.get(self.guild.categories, name="ARENAS").channels
-        await self.delete_arenas()
         self.arena_status = {}
         self.arena_invites = {}
+    
+    async def setup_matchmaking(self, guild):
+        self.guild = guild        
+        self.arenas =  discord.utils.get(self.guild.categories, name="ARENAS").channels
+        await self.delete_arenas()
+        
         
         # Message that will have the updated search lists
         list_channel = self.guild.get_channel(channel_id=LIST_CHANNEL_ID)
@@ -48,6 +49,7 @@ class Matchmaking(commands.Cog):
             self.tier_channels[tier_name] = channel
         
         self.reset_matchmaking.start()
+        await self.update_list_message()
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(in_tier_channel)
@@ -127,24 +129,18 @@ class Matchmaking(commands.Cog):
         player = ctx.author
         arena_players = self.arena_status[arena.name]
 
-        # Alguien invitado
         if len(arena_players) > 2:
             await ctx.send(f"GGs, {ctx.author.name} lo deja por hoy.")
-            await self.remove_arena_permissions(player, arena)
-            return arena_players.remove(player)
-
-        # 1 vs 1
-        await ctx.send("GGs, ¡gracias por jugar!")                
-       
-        # Delete invites before deleting arena
-        if arena.name in self.arena_invites.keys():
-            for invite in self.arena_invites[arena.name]:
-                invite.cancel()        
-            self.arena_invites[arena.name] = []
-
-        # Delete arena
-        await asyncio.sleep(GGS_ARENA_COUNTDOWN)
-        await self.delete_arena(arena)
+            await self.remove_arena_permissions(player, arena)            
+            arena_players.remove(player)
+        else:
+            await ctx.send("GGs, ¡gracias por jugar!")                
+        
+            # Delete arena
+            await asyncio.sleep(GGS_ARENA_COUNTDOWN)
+            await self.delete_arena(arena)
+        
+        return await self.update_list_message()
 
     @ggs.error
     async def ggs_error(self, ctx, error):
@@ -357,6 +353,7 @@ class Matchmaking(commands.Cog):
             # Get and lock an arena
             arena = await self.make_arena()
             self.arena_status[arena.name] = match
+            await self.update_list_message()
             
             # Remove them from the confirmation list
             self.confirmation_list.remove(player1)
@@ -469,7 +466,7 @@ class Matchmaking(commands.Cog):
         await asyncio.sleep(0.5)
         
         # Wait for user reaction
-        invite_task = asyncio.create_task(self.wait_invite_reaction(message, host1, host2, player, arena))
+        invite_task = asyncio.create_task(self.wait_invite_reaction(message, host1, host2, player, arena), name=f"{host1}{host2}{player}{arena}")
         self.arena_invites[arena.name].append(invite_task)
         await invite_task
 
@@ -494,11 +491,16 @@ class Matchmaking(commands.Cog):
                 has_removed = await self.remove_from_search_list(player, range(1, 5))
                 self.arena_status[arena.name].append(player)
                 await self.give_arena_permissions(player, arena)
+                await self.update_list_message()
                 
-                # Delete invites before deleting arena
+                # Delete invites before going to arena
                 if arena.name in self.arena_invites.keys():
                     for invite in self.arena_invites[arena.name]:
-                        invite.cancel()        
+                        invite_name = invite.get_name()
+                        current_task_name = asyncio.current_task().get_name()
+                        
+                        if invite_name != current_task_name:
+                            invite.cancel()
                     self.arena_invites[arena.name] = []             
                 
                 await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
@@ -548,10 +550,11 @@ class Matchmaking(commands.Cog):
         self.arenas.remove(arena)
         self.arena_status.pop(arena.name, None)
 
-        for invite in self.arena_invites[arena.name]:
-            invite.cancel()
-
-        self.arena_invites.pop(arena.name, None)
+        if arena.name in self.arena_invites.keys():            
+            for invite in self.arena_invites[arena.name]:
+                invite.cancel()
+            self.arena_invites.pop(arena.name, None)
+        
         await arena.delete()
   
     # *******************************
@@ -559,11 +562,21 @@ class Matchmaking(commands.Cog):
     # *******************************
 
     async def update_list_message(self):        
-        response = "**__Friendlies list:__**\n"
+        response = ""
         
         for tier in TIER_NAMES:
             players = ", ".join([player.name for player in self.search_list[tier]])
-            response += f"__{tier}__: {players}\n"
+            players = players if players else " "
+            response += f"**{tier}**:\n```{players}```\n"
+        
+        response += f"**ARENAS:**\n"
+        for match in self.arena_status.values():            
+            match_message = f"**{match[0].name}** ({self.get_tier(match[0]).name})"
+            
+            for player in match[1:]:
+                match_message += f" vs. **{player.name}** ({self.get_tier(player).name})"
+
+            response += f"{match_message}\n"                    
         
         await self.list_message.edit(content=response)
     
@@ -611,7 +624,6 @@ class Matchmaking(commands.Cog):
         invited_player = players[player_index]
 
         invite_task = asyncio.create_task(self.invite(ctx, invited_player))        
-        self.arena_invites[arena.name].append(invite_task)
         return await invite_task
     
     @commands.command()
