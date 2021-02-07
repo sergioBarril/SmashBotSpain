@@ -5,20 +5,34 @@ from django.core import validators
 
 class Region(models.Model):
     name = models.CharField(max_length=50)
+    
+    def __str__(self):
+        return self.name 
 
 class Character(models.Model):
     name = models.CharField(max_length=30)
 
+    def __str__(self):
+        return self.name 
+
 class Tier(models.Model):
     name = models.CharField(max_length=15)
 
+    def __str__(self):
+        return self.name 
+
 class Player(models.Model):
-    discord_id = models.BigIntegerField(primary_key=True)
+    id = models.BigIntegerField(primary_key=True)
+
+    name = models.CharField(max_length=20, null=True, blank=True)
     
     characters = models.ManyToManyField(Character, through="Main")
     regions = models.ManyToManyField(Region)
     
     tier = models.ForeignKey(Tier, null=True, on_delete=models.SET_NULL)
+
+    def __str__(self):
+        return f"{self.name} ({self.tier})"
 
 class Main(models.Model):
     MAIN_SECOND = [
@@ -48,15 +62,21 @@ class Arena(models.Model):
 
     players = models.ManyToManyField(Player, through="ArenaPlayer")
 
+    def __str__(self):
+        return f"Arena #{self.id}"
+
 class ArenaPlayer(models.Model):
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE)
     player = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL)
     
     STATUS = [
         ('WAITING', 'Waiting'),
-        ('PLAYING', 'Playing'),        
+        ('PLAYING', 'Playing'),
         ('GGS', 'GGs'),
         ('INVITED', 'Invited'),
     ]
     
-    status = models.CharField(max_length=7)
+    status = models.CharField(max_length=7, choices=STATUS)
+
+    def __str__(self):
+        return f"{self.player} in {self.arena}"
