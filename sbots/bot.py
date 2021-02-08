@@ -1,5 +1,6 @@
 # bot.py
 import os
+import aiohttp
 
 import discord
 from discord.ext import tasks, commands
@@ -19,6 +20,7 @@ class SmashBotSpain(commands.Bot):
 
     async def on_ready(self):
         self.guild = self.get_guild(GUILD_ID)
+        self.session = aiohttp.ClientSession()
         
         print(
             f'{client.user} is connected to the following guild:\n'

@@ -14,11 +14,11 @@ class ArenaSerializer(serializers.ModelSerializer):
     created_by = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())    
     tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
 
-    players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True)
+    # players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True)
 
     class Meta:
         model = Arena
-        fields = ('id', 'status', 'tier', 'created_by', 'max_players', 'num_players', 'players')
+        fields = ('id', 'status', 'tier', 'mode', 'created_by', 'max_players', 'num_players')
 
 class TierSerializer(serializers.ModelSerializer):
     class Meta:
