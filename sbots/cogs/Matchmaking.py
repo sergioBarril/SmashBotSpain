@@ -1,9 +1,12 @@
+import aiohttp
 import discord
 import asyncio
+import time
 import re
 import itertools
 import typing
 from datetime import datetime, timedelta
+import json
 
 from discord.ext import tasks, commands
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
@@ -63,6 +66,19 @@ class Matchmaking(commands.Cog):
         # Get player and tier
         player = ctx.author
         tier_role = self.get_tier(player)
+        
+        body = {
+            'status' : 'WAITING',
+            'created_by' : ctx.author.id,
+            'tier' : 1,
+            'max_players' : 5,
+            'num_players' : 1,            
+        }
+
+        async with self.bot.session.post('http://127.0.0.1:8000/arenas/', json=body) as response:
+            html = await response.text()
+            await ctx.send(html)
+            return
 
         # Check if player can join the search lists
         try:
