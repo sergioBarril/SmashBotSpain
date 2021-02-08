@@ -17,3 +17,16 @@ class PlayerViewSet(viewsets.ModelViewSet):
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()
     serializer_class = ArenaSerializer
+
+    @action(detail=False)
+    def playing(self, request):
+        playing_arenas = Arena.objects.filter(status="PLAYING")
+
+        page = self.paginate_queryset(playing_arenas)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(playing_arenas, many=True)
+        return Response(serializer.data)
+    
+    
