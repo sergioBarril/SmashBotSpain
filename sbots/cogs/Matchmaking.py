@@ -65,14 +65,15 @@ class Matchmaking(commands.Cog):
         """
         # Get player and tier
         player = ctx.author
-        tier_role = self.get_tier(player)
+        # tier_role = self.get_tier(player)        
         
         body = {
             'status' : 'WAITING',
             'created_by' : ctx.author.id,
-            'tier' : 1,
-            'max_players' : 5,
-            'num_players' : 1,            
+            'tier' : ctx.channel.id,
+            'max_players' : 2,
+            'num_players' : 1,
+            'roles' : [{'id': role.id, 'name': role.name} for role in player.roles]
         }
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/', json=body) as response:
@@ -267,8 +268,7 @@ class Matchmaking(commands.Cog):
         if isinstance(player, discord.member.Member):
             member = player
         else:            
-            member = self.guild.get_member(player.id)        
-                
+            member = self.guild.get_member(player.id)
         return next((role for role in member.roles[::-1] if role in self.tier_roles.values()), None)
 
     def tier_range_validation(self, tier_role, limit_tier_num, force_tier = False):
