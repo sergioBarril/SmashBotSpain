@@ -16,7 +16,20 @@ class ArenaSerializer(serializers.ModelSerializer):
     max_tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
     min_tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
 
-    players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True, required=False)
+    players = serializers.PrimaryKeyRelatedField(many=True, required=False, read_only=True)
+    
+    def create(self, validated_data):
+        new_arena = Arena.objects.create(**validated_data)        
+        arena_player = {
+            'player': validated_data['created_by'].id,
+            'arena' : new_arena.id,
+            'status': "WAITING"
+        }
+        
+        ap_serializer = ArenaPlayerSerializer(data=arena_player)
+        if ap_serializer.is_valid():
+            ap_serializer.save()
+            return new_arena
     
     class Meta:
         model = Arena
@@ -26,12 +39,13 @@ class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())
     player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
 
-    def create(self, validated_data):
-        arena = validated_data.pop('arena')
-        player = validated_data.pop('player')
-        ArenaPlayer.objects.create(arena=arena, player=player, status='GGs')
+    # def create(self, validated_data):
+    #     arena = validated_data.pop('arena')
+    #     player = validated_data.pop('player')
+    #     ArenaPlayer.objects.create(arena=arena, player=player, status='GGs')
 
-        return
+    #     return
+    
     class Meta:
         model = ArenaPlayer
         fields = ('arena', 'player', 'status')

@@ -70,7 +70,7 @@ class Matchmaking(commands.Cog):
         body = {
             'status' : 'WAITING',
             'created_by' : ctx.author.id,
-            'tier' : ctx.channel.id,
+            'min_tier' : ctx.channel.id,
             'max_players' : 2,
             'num_players' : 1,
             'roles' : [{'id': role.id, 'name': role.name} for role in player.roles]
