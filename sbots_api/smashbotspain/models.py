@@ -1,5 +1,7 @@
 from django.db import models
 from django.core import validators
+from functools import total_ordering
+
 
 # Create your models here.
 
@@ -18,6 +20,7 @@ class Character(models.Model):
     def __str__(self):
         return self.name 
 
+@total_ordering
 class Tier(models.Model):
     """
     Model for tiers. More weight == better role.
@@ -30,6 +33,12 @@ class Tier(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def __lt__(self, other):
+        return self.weight < other.weight
+    
+    def __eq__(self, other):
+        return self.id == other.id
 
 class Player(models.Model):
     id = models.BigIntegerField(primary_key=True)
@@ -42,6 +51,26 @@ class Player(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.tier})"
+    
+    def status(self):
+        """
+        Returns the status of the player
+        """
+        for status in ArenaPlayer.CANT_JOIN_STATUS:
+            if ArenaPlayer.objects.filter(player=self, status=status):
+                return status        
+        for status in ArenaPlayer.CAN_JOIN_STATUS:
+            if ArenaPlayer.objects.filter(player=self, status=status):
+                return status
+        return False
+    
+    def can_join(self):
+        """
+        Returns False if player is already playing / confirmation step.
+        True otherwise.
+        """
+        pass
+        # return not arena_player.exists()
 
 class Main(models.Model):
     MAIN_SECOND = [
@@ -57,7 +86,7 @@ class Main(models.Model):
 class Arena(models.Model):
     STATUS = [
         ('WAITING', 'Waiting'),
-        ('CONFIRM', 'Confirmation'),
+        ('CONFIRMATION', 'Confirmation'),
         ('PLAYING', 'Playing'),
         ('CLOSED', 'Closed'),
     ]
@@ -68,7 +97,7 @@ class Arena(models.Model):
     ]
     
     created_by = models.ForeignKey(Player, null=True, related_name="created_by", on_delete=models.SET_NULL)
-    status = models.CharField(max_length=7, choices=STATUS, default="WAITING")
+    status = models.CharField(max_length=12, choices=STATUS, default="WAITING")
     mode = models.CharField(max_length=10, choices=MODE, default="FRIENDLIES")
     
     max_tier = models.ForeignKey(Tier, null=True, related_name="max_tier", on_delete=models.SET_NULL)
@@ -81,6 +110,20 @@ class Arena(models.Model):
 
     def __str__(self):
         return f"Arena #{self.id}"
+    
+    @staticmethod
+    def search(min_tier, max_tier):        
+        arenas = Arena.objects.filter(min_tier__weight__lte = max_tier.weight)
+        arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
+        return arenas
+    
+    def add_player(self, player, status):
+        ArenaPlayer.objects.create(arena=self, status=status, player=player)
+    
+    # def set_confirmation(self):
+    #     self.status = "CONFIRMATION"
+    #     for player in self.players:
+    #         player.status = "CONFIRMATION"
 
 class ArenaPlayer(models.Model):
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE, null=True, blank=True)
@@ -88,13 +131,18 @@ class ArenaPlayer(models.Model):
     
     STATUS = [
         ('WAITING', 'Waiting'),
-        ('CONFIRMED', 'Confirmed'),
+        ('CONFIRMATION', 'Confirmation'),
+        ('ACCEPTED', 'Accepted'),
         ('PLAYING', 'Playing'),
         ('GGS', 'GGs'),
         ('INVITED', 'Invited'),
     ]
+
     
-    status = models.CharField(max_length=10, choices=STATUS)
+    CANT_JOIN_STATUS = ["CONFIRMATION", "ACCEPTED", "PLAYING"]
+    CAN_JOIN_STATUS = ["WAITING", "INVITED", "GG"]
+    
+    status = models.CharField(max_length=12, choices=STATUS)
 
     def __str__(self):
         return f"{self.player} in {self.arena}"

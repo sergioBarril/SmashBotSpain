@@ -65,7 +65,7 @@ class Matchmaking(commands.Cog):
         """
         # Get player and tier
         player = ctx.author
-        # tier_role = self.get_tier(player)        
+        # tier_role = self.get_tier(player)
         
         body = {
             'status' : 'WAITING',
@@ -73,12 +73,19 @@ class Matchmaking(commands.Cog):
             'min_tier' : ctx.channel.id,
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [{'id': role.id, 'name': role.name} for role in player.roles]
+            'roles' : [role.id for role in player.roles]
         }
 
-        async with self.bot.session.post('http://127.0.0.1:8000/arenas/', json=body) as response:
-            html = await response.text()
-            await ctx.send(html)
+        async with self.bot.session.post('http://127.0.0.1:8000/arenas/', json=body) as response:            
+            if response.status == 201:
+                html = await response.text()
+                resp_body = json.loads(html)                
+                await ctx.send(resp_body['status'])
+            else:
+                html = await response.text()
+                errors = json.loads(html)
+                error_message = "\n".join([error[0] for error in errors.values()])
+                await ctx.send(error_message)
             return
 
         # Check if player can join the search lists
