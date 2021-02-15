@@ -51,10 +51,15 @@ class ArenaViewSet(viewsets.ModelViewSet):
     
         
     def create(self, request):
-        roles = request.data['roles']      
-
+        roles = request.data['roles']
+        force_tier = request.data['force_tier']
+        
         # Get player tier
         tier_roles = Tier.objects.filter(pk__in=roles)
+        
+        if not tier_roles:
+            return Response({"cant_join":"NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)
+        
         player_tier = max(tier_roles, key=lambda role : role.weight)
 
         # Get or create player
@@ -79,28 +84,65 @@ class ArenaViewSet(viewsets.ModelViewSet):
             return Response({"cant_join" : player_status}, status=status.HTTP_409_CONFLICT)
 
         # Get tier range
-        max_tier = player_tier
         min_tier = Tier.objects.filter(channel_id=request.data['min_tier']).first()
+        max_tier = min_tier if force_tier else player_tier
         
         data = request.data.copy()
         data['min_tier'] = min_tier.id
         data['max_tier'] = max_tier.id
         
-        arenas = Arena.search(min_tier, max_tier)
+        # Update search
+        old_arena = None
+        try:
+            old_arena = Arena.objects.filter(created_by=player, status="WAITING").get()
+
+            # Get added and removed tiers
+            old_tiers = Tier.objects.filter(weight__gte=old_arena.min_tier.weight, weight__lte=old_arena.max_tier.weight)
+            new_tiers = Tier.objects.filter(weight__gte=min_tier.weight, weight__lte=max_tier.weight)
+            
+            added_tiers = [tier for tier in new_tiers if tier not in old_tiers]
+            removed_tiers = [tier for tier in old_tiers if tier not in new_tiers]
+
+            if not (added_tiers or removed_tiers):
+                return Response({"cant_join" : "ALREADY_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Partial update
+            old_serializer = ArenaSerializer(old_arena, data={'min_tier' : min_tier.id, 'max_tier' : max_tier.id}, partial=True)
+            if old_serializer.is_valid():
+                old_serializer.save()
+            else:
+
+                return Response({"cant_join" : "BAD_TIERS", 
+                    "wanted_tier" : min_tier.name,
+                    "player_tier" : max_tier.name},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        except Arena.DoesNotExist:
+            pass
+        
+        arenas = player.search(min_tier, max_tier)
 
         if arenas: # Join existing arena
             arena = arenas.first()
-            arena.status = "CONFIRMATION"
+            arena.set_confirmation()
             arena.add_player(player, "CONFIRMATION")
             
             arena.save()
             serializer = ArenaSerializer(arena)
-        
+            response_data = serializer.data
+            print("Join?")
+            return
+        elif old_arena: # No match available, just updated search
+            print("Old_Arena")
+            response_data = old_serializer.data.copy()
+            response_data['added_tiers'] = [tier.id for tier in added_tiers]
+            response_data['removed_tiers'] = [tier.id for tier in removed_tiers]
+            return Response(response_data, status=status.HTTP_200_OK)
         else: # Create new arena
             serializer = ArenaSerializer(data=data)
             if serializer.is_valid():
                 serializer.save()
-                arena = serializer.data
+                response_data = serializer.data
             else:
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(response_data, status=status.HTTP_201_CREATED)

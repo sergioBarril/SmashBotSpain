@@ -38,6 +38,8 @@ class Tier(models.Model):
         return self.weight < other.weight
     
     def __eq__(self, other):
+        if not isinstance(other, Tier):
+            return False
         return self.id == other.id
 
 class Player(models.Model):
@@ -71,6 +73,13 @@ class Player(models.Model):
         """
         pass
         # return not arena_player.exists()
+    
+    def search(self, min_tier, max_tier):
+        arenas = Arena.objects.filter(min_tier__weight__lte = max_tier.weight)
+        arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
+        arenas = arenas.exclude(created_by=self)
+        return arenas
+
 
 class Main(models.Model):
     MAIN_SECOND = [
@@ -110,20 +119,15 @@ class Arena(models.Model):
 
     def __str__(self):
         return f"Arena #{self.id}"
-    
-    @staticmethod
-    def search(min_tier, max_tier):        
-        arenas = Arena.objects.filter(min_tier__weight__lte = max_tier.weight)
-        arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
-        return arenas
-    
+       
     def add_player(self, player, status):
         ArenaPlayer.objects.create(arena=self, status=status, player=player)
     
-    # def set_confirmation(self):
-    #     self.status = "CONFIRMATION"
-    #     for player in self.players:
-    #         player.status = "CONFIRMATION"
+    def set_confirmation(self):
+        self.status = "CONFIRMATION"
+        for player in self.players.all():
+            player.status = "CONFIRMATION"
+            player.save()
 
 class ArenaPlayer(models.Model):
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE, null=True, blank=True)

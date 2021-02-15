@@ -64,8 +64,10 @@ class Matchmaking(commands.Cog):
         You can join the list of friendlies with this command.
         """
         # Get player and tier
-        player = ctx.author
-        # tier_role = self.get_tier(player)
+        player = ctx.author        
+
+        # Check Force-tier mode:
+        is_force_tier = ctx.invoked_with == "friendlies-here"
         
         body = {
             'status' : 'WAITING',
@@ -73,7 +75,8 @@ class Matchmaking(commands.Cog):
             'min_tier' : ctx.channel.id,
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [role.id for role in player.roles]
+            'roles' : [role.id for role in player.roles],
+            'force_tier' : is_force_tier
         }
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/', json=body) as response:            
@@ -81,34 +84,42 @@ class Matchmaking(commands.Cog):
                 html = await response.text()
                 resp_body = json.loads(html)                
                 await ctx.send(resp_body['status'])
+            elif response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+                await ctx.send(f"Added: {resp_body['added_tiers']}\nRemoved: {resp_body['removed_tiers']}")
+            elif response.status == 409:
+                html = await response.text()
+
+                error_messages = {
+                    "CONFIRMATION" : "¡Tienes una partida pendiente de ser aceptada! Mira tus MDs.",
+                    "ACCEPTED" : "Ya has aceptado tu partida, pero tu rival no. ¡Espérate!",
+                    "PLAYING" : "¡Ya estás jugando! Cierra la arena escribiendo en ella el comando `.ggs`."
+                }
+                
+                errors = json.loads(html)
+
+                player_status = errors["cant_join"]
+                await ctx.send(error_messages[player_status])
+                return
             else:
                 html = await response.text()
                 errors = json.loads(html)
-                error_message = "\n".join([error[0] for error in errors.values()])
+                
+                error = errors.get("cant_join", False)                
+                
+                error_messages = {
+                    "NO_TIER" : "No tienes Tier... Habla con algún admin para que te asigne una.",
+                    "ALREADY_SEARCHING" : f"Pero {player.mention}, ¡si ya estabas en la cola!",
+                    "BAD_TIERS" : f"Intentas colarte en la lista de la {errors['wanted_tier']}, pero aún eres de {errors['player_tier']}... ¡A seguir mejorando!",
+                }
+                
+                if error:
+                    error_message = error_messages[error]
+                else:
+                    error_message = "\n".join([error[0] for error in errors.values()])
                 await ctx.send(error_message)
             return
-
-        # Check if player can join the search lists
-        try:
-            await self.can_join_search(ctx.author)
-        except AlreadyMatchedException as e:
-            return await ctx.send(e)
-
-        # Check Force-tier mode:
-        is_force_tier = ctx.invoked_with == "friendlies-here"
-
-        # If .friendlies in #tier-x:
-        if tier_num is None:
-            channel_name = ctx.channel.name if ctx.guild else None
-            
-            if channel_name in TIER_CHANNEL_NAMES:
-                tier_num = channel_name[-1]
-
-        # Validate tiers
-        try:
-            tier_range = self.tier_range_validation(tier_role, tier_num, is_force_tier)
-        except TierValidationException as e:
-            return await ctx.send(e)
         
         # Add them to search
         tiers_added = await self.add_to_search_list(player, tier_range)
@@ -117,7 +128,7 @@ class Matchmaking(commands.Cog):
         tiers_removed = await self.remove_from_search_list(player, (i for i in range(1, 5) if i not in tier_range))
 
         if not tiers_added and not tiers_removed:
-            return await ctx.send(f"Pero {player.mention}, ¡si ya estabas en la cola!")
+            return await ctx.send()
         
         # Update current_search record
         self.current_search[player] = tier_range
