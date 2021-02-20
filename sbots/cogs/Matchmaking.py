@@ -74,7 +74,6 @@ class Matchmaking(commands.Cog):
             'player_name' : ctx.author.nickname(),
             'min_tier' : ctx.channel.id,
             'max_players' : 2,
-            'num_players' : 1,
             'roles' : [role.id for role in player.roles],
             'force_tier' : is_force_tier
         }
