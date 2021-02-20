@@ -123,7 +123,8 @@ CHARACTERS = [
     "Byleth",
     "Min Min",
     "Steve",
-    "Sephiroth"
+    "Sephiroth",
+    "Pyra/Mythra"
 ]
 
 NORMALIZED_CHARACTERS = [key_format(character) for character in CHARACTERS]
@@ -223,5 +224,7 @@ def normalize_character(character_name):
         return 'Steve'
     if char in ('sefirot', 'sefiroth', 'sephirot'):
         return 'Sephiroth'
+    if char in ('pyra', 'mythra', 'pythra', 'aegis', 'homura', 'hikari', 'homura/hikari')
+        return 'Pyra/Mythra'
     
     return False
