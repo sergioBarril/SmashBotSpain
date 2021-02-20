@@ -121,8 +121,8 @@ class Arena(models.Model):
         return f"Arena #{self.id}"
        
     def add_player(self, player, status):
-        ArenaPlayer.objects.create(arena=self, status=status, player=player)
-    
+        ArenaPlayer.objects.create(arena=self, status=status, player=player)       
+
     def set_confirmation(self):
         self.status = "CONFIRMATION"
         for player in self.players.all():

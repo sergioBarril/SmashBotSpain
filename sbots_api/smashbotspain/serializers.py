@@ -3,12 +3,13 @@ from smashbotspain.models import Player, Arena, Tier, ArenaPlayer
 
 class PlayerSerializer(serializers.ModelSerializer):
     regions = serializers.StringRelatedField(many=True, required=False)
-    tier = serializers.StringRelatedField()
+    tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
     characters = serializers.StringRelatedField(required=False)
+    name = serializers.CharField(required=False)
 
     class Meta:
         model = Player
-        fields = ('id', 'characters', 'regions', 'tier')
+        fields = ('id', 'name', 'characters', 'regions', 'tier')
         depth = 1
 
 class ArenaSerializer(serializers.ModelSerializer):    

@@ -11,180 +11,150 @@ from rest_framework import status
 # Models
 from smashbotspain.models import Arena, Player, ArenaPlayer, Tier
 
+def make_player(id, name, tier=None):
+    player = Player(
+        id = id,
+        name = name,
+        tier = tier
+    )
+    player.save()
+    
+    return player
 
-class ArenaTestCase(TestCase):
+def make_tier(id, name, channel_id, weight):
+    tier = Tier(
+        id=id,
+        name = name,
+        channel_id = channel_id,
+        weight = weight
+    )
+    tier.save()
+    return tier
 
+class ArenaTestCase(TestCase):    
     def setUp(self):
         # Setup Players
-        player1 = Player(
-            id=12345678987654,
-            name="Tropped",
-        )
-        player2 = Player(
-            id=45678987654321,
-            name="Razenokis"
-        )
-        player1.save()
-        player2.save()
-
-        # Setup Tiers
-        tier1 = Tier(
-            id=45678987654,
-            name="Tier 1",
-            channel_id=94939382,
-            weight=4
-        )
-        tier2 = Tier(
-            id=54678987654,
-            name="Tier 2",
-            channel_id=9393938,
-            weight=3
-        )
-        tier3 = Tier(
-            id=54678987655,
-            name="Tier 3",
-            channel_id=4848484,
-            weight=2
-        )
+        self.tropped = make_player(id=12345678987654, name="Tropped")
+        self.razen = make_player(id=45678987654321, name="Razenokis")        
         
-        tier1.save()
-        tier2.save()
-        tier3.save()
-
+        # Setup Tiers
+        self.tier1 = make_tier(id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
+        self.tier2 = make_tier(id=54678987654, name="Tier 2", channel_id=9393938, weight=3)
+        self.tier3 = make_tier(id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
+        self.tier4 = make_tier(id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
 
     def test_friendlies_search(self):
         client = APIClient()
 
-        body = {
-            'status' : 'WAITING',
-            'created_by' : 12345678987654,
-            'min_tier' : 4848484,  # Tier 3 channel
+        body = {            
+            'created_by' : self.tropped.id,
+            'player_name' : self.tropped.name,
+            'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [54678987654] # Tier 2
+            'roles' : [self.tier2.id] # Tier 2
         }
         
-        response = client.post(
-            '/arenas/', 
-            body,
-            format='json'
-        )
+        response = client.post('/arenas/', body, format='json')
 
         result = json.loads(response.content)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn('id', result)       
         self.assertEqual(result['status'], 'WAITING')
-        self.assertEqual(result['max_tier'], 54678987654)  # Tier 2
-        self.assertEqual(result['min_tier'], 54678987655)  # Tier 3
+        self.assertEqual(result['max_tier'], self.tier2.id)  # Tier 2
+        self.assertEqual(result['min_tier'], self.tier3.id)  # Tier 3
     
-    def test_friendlies_tier_too_high(self):
+    def test_already_searching(self):
+        self.test_friendlies_search()
         client = APIClient()
 
         body = {
-            'status' : 'WAITING',
-            'created_by' : 12345678987654,  # Tropped
-            'min_tier' : 94939382,  # Tier 1 channel
+            'created_by' : self.tropped.id,
+            'player_name' : self.tropped.name,
+            'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [54678987654] # Tier 2
+            'roles' : [self.tier2.id] # Tier 2
         }
 
-        response = client.post(
-            '/arenas/', 
-            body,
-            format='json'
-        )
+        response = client.post('/arenas/', body, format='json')
+        result = json.loads(response.content)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(result.get('cant_join'), "ALREADY_SEARCHING")
 
-        result = json.loads(response.content)        
+    def test_friendlies_tier_too_high(self):
+        client = APIClient()
+
+        body = {            
+            'created_by' : self.tropped.id,  # Tropped
+            'player_name' : self.tropped.name,
+            'min_tier' : self.tier1.channel_id,  # Tier 1 channel
+            'max_players' : 2,
+            'num_players' : 1,
+            'roles' : [self.tier2.id] # Tier 2
+        }
+
+        response = client.post('/arenas/', body, format='json')
+
+        result = json.loads(response.content)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    # def test_update_education(self):
+    def test_matched(self):
+        client = APIClient()
 
-    #     client = APIClient()
-    #     client.credentials(HTTP_AUTHORIZATION='Token ' + self.access_token)
+        body_tropped = {            
+            'created_by' : self.tropped.id, # Tropped
+            'player_name' : self.tropped.name,
+            'min_tier' : self.tier3.channel_id,  # Tier 3 channel
+            'max_players' : 2,
+            'num_players' : 1,
+            'roles' : [self.tier2.id] # Tier 2
+        }
 
-    #     # Creamos un objeto en la base de datos para trabajar con datos
-    #     edu = Education.objects.create(
-    #         date_ini='2010-09-01T19:41:21Z',
-    #         date_end='2012-09-01T19:41:21Z',
-    #         title='DAM',
-    #         user=self.user
-    #     )
-
-    #     test_education_update = {
-    #         'date_ini': '2010-09-02T19:41:21Z',
-    #         'date_end': '2012-09-02T19:41:21Z',
-    #         'title': 'DAA',
-    #     }
-
-    #     response = client.put(
-    #         f'/education/{edu.pk}/', 
-    #         test_education_update,
-    #         format='json'
-    #     )
-
-    #     result = json.loads(response.content)
-    #     self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    #     if 'pk' in result:
-    #         del result['pk']
-
-    #     self.assertEqual(result, test_education_update)
-
-    
-    # def test_delete_education(self):
-
-    #     client = APIClient()
-    #     client.credentials(HTTP_AUTHORIZATION='Token ' + self.access_token)
-
-    #     # Creamos un objeto en la base de datos para trabajar con datos
-    #     edu = Education.objects.create(
-    #         date_ini='2010-09-01T19:41:21Z',
-    #         date_end='2012-09-01T19:41:21Z',
-    #         title='DAM',
-    #         user=self.user
-    #     )
-
-    #     response = client.delete(
-    #         f'/education/{edu.pk}/', 
-    #         format='json'
-    #     )
-
-    #     self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-    #     edu_exists = Education.objects.filter(pk=edu.pk)
-    #     self.assertFalse(edu_exists)
-
-
-    # def test_get_education(self):
-
-    #     client = APIClient()
-    #     client.credentials(HTTP_AUTHORIZATION='Token ' + self.access_token)
-
-    #     Education.objects.create(
-    #         date_ini='2010-09-01T19:41:21Z',
-    #         date_end='2012-09-01T19:41:21Z',
-    #         title='DAM',
-    #         user=self.user
-    #     )
-
-    #     Education.objects.create(
-    #         date_ini='2008-09-01T19:41:21Z',
-    #         date_end='2010-09-01T19:41:21Z',
-    #         title='Bachiller',
-    #         user=self.user
-    #     )
-
-    #     response = client.get('/education/')
+        body_razenokis = {            
+            'created_by' : self.razen.id, # Razen
+            'player_name' : self.razen.name,
+            'min_tier' : self.tier2.channel_id,  # Tier 2 channel
+            'max_players' : 2,
+            'num_players' : 1,
+            'roles' : [self.tier1.id] # Tier 1            
+        }
         
-    #     result = json.loads(response.content)
-    #     self.assertEqual(response.status_code, status.HTTP_200_OK)
+        search_response = client.post('/arenas/', body_tropped, format='json')
+        match_response = client.post('/arenas/', body_razenokis, format='json')
+        result = json.loads(match_response.content)
 
-    #     self.assertEqual(result['count'], 2)
+        self.assertEqual(match_response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(result.get('match_found'))
 
-    #     for edu in result['results']:
-    #         self.assertIn('pk', edu)
-    #         self.assertIn('date_ini', edu)
-    #         self.assertIn('date_end', edu)
-    #         self.assertIn('title', edu)
-    #         break
+        self.assertEqual(result.get('player_one'), self.tropped.id)
+        self.assertEqual(result.get('player_two'), self.razen.id)
+
+    def test_force_tier(self):
+        client = APIClient()
+
+        body = {            
+            'created_by' : self.tropped.id, # Tropped
+            'player_name' : self.tropped.name,
+            'min_tier' : self.tier3.channel_id,  # Tier 3 channel
+            'max_players' : 2,
+            'num_players' : 1,
+            'roles' : [self.tier2.id], # Tier 2
+            'force_tier': True
+        }
+
+        # Create        
+        response = client.post('/arenas/', body, format='json')
+        result = json.loads(response.content)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(result.get('added_tiers'), [{'id': self.tier3.id, 'channel': self.tier3.channel_id}])
+        self.assertEqual(result.get('removed_tiers'), [])
+        
+        # Update search
+        body['min_tier'] = self.tier4.channel_id
+        
+        response = client.post('/arenas/', body, format='json')
+        result = json.loads(response.content)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(result.get('added_tiers'), [{'id': self.tier4.id, 'channel': self.tier4.channel_id}])
+        self.assertEqual(result.get('removed_tiers'), [{'id': self.tier3.id, 'channel': self.tier3.channel_id}])        

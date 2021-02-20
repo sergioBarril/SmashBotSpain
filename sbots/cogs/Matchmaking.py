@@ -69,9 +69,9 @@ class Matchmaking(commands.Cog):
         # Check Force-tier mode:
         is_force_tier = ctx.invoked_with == "friendlies-here"
         
-        body = {
-            'status' : 'WAITING',
+        body = {            
             'created_by' : ctx.author.id,
+            'player_name' : ctx.author.nickname(),
             'min_tier' : ctx.channel.id,
             'max_players' : 2,
             'num_players' : 1,
@@ -80,14 +80,40 @@ class Matchmaking(commands.Cog):
         }
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/', json=body) as response:            
+            # MATCH FOUND OR STARTED SEARCHING
             if response.status == 201:
                 html = await response.text()
-                resp_body = json.loads(html)                
-                await ctx.send(resp_body['status'])
+                resp_body = json.loads(html)
+                
+                if resp_body['match_found']:
+                    player1 = ctx.guild.get_member(resp_body['player_one'])
+                    player2 = ctx.guild.get_member(resp_body['player_two'])
+                    await ctx.send(f"Match encontrado entre **{player1.nickname()}** y **{player2.nickname()}**!")
+
+                else:
+                    for tier in resp_body['added_tiers']:
+                        tier_role = ctx.guild.get_role(tier['id'])
+                        tier_channel = ctx.guild.get_channel(tier['channel'])
+
+                        await tier_channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar.")
+            
+            # UPDATE SEARCH
             elif response.status == 200:
                 html = await response.text()
                 resp_body = json.loads(html)
-                await ctx.send(f"Added: {resp_body['added_tiers']}\nRemoved: {resp_body['removed_tiers']}")
+                
+                for tier in resp_body['added_tiers']:
+                    tier_role = ctx.guild.get_role(tier['id'])
+                    tier_channel = ctx.guild.get_channel(tier['channel'])
+
+                    await tier_channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar.")
+                if not resp_body['added_tiers']:
+                    removed_roles = [ctx.guild.get_role(tier['id']) for tier in resp_body['removed_tiers']]
+                    tiers_removed_str = ", ".join([role.name for role in removed_roles])
+
+                    await ctx.send(f"Vale **{player.nickname()}**, has dejado de buscar en: {tiers_removed_str}.")                
+            
+            # STATUS_CONFLICT ERROR
             elif response.status == 409:
                 html = await response.text()
 
@@ -101,17 +127,17 @@ class Matchmaking(commands.Cog):
 
                 player_status = errors["cant_join"]
                 await ctx.send(error_messages[player_status])
-                return
-            else:
+            
+            elif response.status == 400:
                 html = await response.text()
                 errors = json.loads(html)
                 
-                error = errors.get("cant_join", False)                
-                
+                error = errors.get("cant_join", False)
+                                
                 error_messages = {
                     "NO_TIER" : "No tienes Tier... Habla con algún admin para que te asigne una.",
                     "ALREADY_SEARCHING" : f"Pero {player.mention}, ¡si ya estabas en la cola!",
-                    "BAD_TIERS" : f"Intentas colarte en la lista de la {errors['wanted_tier']}, pero aún eres de {errors['player_tier']}... ¡A seguir mejorando!",
+                    "BAD_TIERS" : f"Intentas colarte en la lista de la {errors.get('wanted_tier')}, pero aún eres de {errors.get('player_tier')}... ¡A seguir mejorando!",
                 }
                 
                 if error:
@@ -121,42 +147,8 @@ class Matchmaking(commands.Cog):
                 await ctx.send(error_message)
             return
         
-        # Add them to search
-        tiers_added = await self.add_to_search_list(player, tier_range)
-
-        # Remove unwanted tiers
-        tiers_removed = await self.remove_from_search_list(player, (i for i in range(1, 5) if i not in tier_range))
-
-        if not tiers_added and not tiers_removed:
-            return await ctx.send()
-        
-        # Update current_search record
-        self.current_search[player] = tier_range
-        
-        if not self.is_match_possible(tier_range):
-            # Mention @Tier X
-            tier_mention_tasks = []
-            for tier_num in tiers_added:  
-                tier_role = self.tier_roles[f'Tier {tier_num}']
-                tier_channel = self.tier_channels[f'Tier {tier_num}']
-                mention_message = f"Atención {tier_role.mention}, ¡**{ctx.author.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar."
-
-                tier_mention_tasks.append(tier_channel.send(mention_message))            
-            if tier_mention_tasks:
-                if player not in self.mention_messages.keys():
-                    self.mention_messages[player] = []
-                self.mention_messages[player] += await asyncio.gather(*tier_mention_tasks)
-            else:
-                tiers_removed_join = ", ".join([f"Tier {i}" for i in tiers_removed])
-                if len(tiers_removed) == 1:
-                    tiers_removed_str = f"la {tiers_removed_join}"
-                else:
-                    tiers_removed_str = f"las siguientes tiers: {tiers_removed_join}"                
-                
-                await ctx.send(f"Vale {player.nickname()}, has dejado de buscar en {tiers_removed_str}.")
-        
         # Matchmaking
-        await self.matchmaking(tier_range)
+        # await self.matchmaking(tier_range)
 
     @friendlies.error
     async def friendlies_error(self, ctx, error):

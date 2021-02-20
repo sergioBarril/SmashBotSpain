@@ -3,6 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 
+from django.core.exceptions import ObjectDoesNotExist
+
 from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer
 from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer
 
@@ -52,7 +54,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         
     def create(self, request):
         roles = request.data['roles']
-        force_tier = request.data['force_tier']
+        force_tier = request.data.get('force_tier', False)
         
         # Get player tier
         tier_roles = Tier.objects.filter(pk__in=roles)
@@ -64,12 +66,14 @@ class ArenaViewSet(viewsets.ModelViewSet):
 
         # Get or create player
         player_id = request.data['created_by']
+        player_name = request.data['player_name']
         try:
             player = Player.objects.get(pk=player_id)
-        except Player.DoesNotExist:
+        except Player.DoesNotExist as e:                        
             player_data = {
                 'id' : player_id,
-                'tier' : max_tier
+                'name' : player_name,
+                'tier' : player_tier.id
             }
             player_serializer = PlayerSerializer(data=player_data)
             if player_serializer.is_valid():
@@ -125,24 +129,41 @@ class ArenaViewSet(viewsets.ModelViewSet):
         if arenas: # Join existing arena
             arena = arenas.first()
             arena.set_confirmation()
-            arena.add_player(player, "CONFIRMATION")
-            
+            arena.add_player(player, "CONFIRMATION")            
             arena.save()
-            serializer = ArenaSerializer(arena)
-            response_data = serializer.data
-            print("Join?")
-            return
-        elif old_arena: # No match available, just updated search
-            print("Old_Arena")
+
+            # Update your arena or make a new one anyway
+            if not old_arena:
+                serializer = ArenaSerializer(data=data)
+                if serializer.is_valid():
+                    old_arena = serializer.save()
+                else:
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)                
+                
+            old_arena.set_confirmation()
+            old_arena.add_player(arena.created_by, "CONFIRMATION")
+
+            return Response({
+                "match_found" : True,
+                "player_one" : arena.created_by.id,
+                "player_two" : player_id
+            }, status=status.HTTP_201_CREATED)
+        
+        if old_arena: # No match available, just updated search
             response_data = old_serializer.data.copy()
-            response_data['added_tiers'] = [tier.id for tier in added_tiers]
-            response_data['removed_tiers'] = [tier.id for tier in removed_tiers]
+            response_data['added_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in added_tiers]
+            response_data['removed_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in removed_tiers]
             return Response(response_data, status=status.HTTP_200_OK)
         else: # Create new arena
             serializer = ArenaSerializer(data=data)
             if serializer.is_valid():
                 serializer.save()
-                response_data = serializer.data
+                response_data = serializer.data.copy()
+                response_data["match_found"] = False
+                
+                tiers = Tier.objects.filter(weight__gte=min_tier.weight, weight__lte=max_tier.weight)
+                response_data["added_tiers"] = [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
+                response_data["removed_tiers"] = []
             else:
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         return Response(response_data, status=status.HTTP_201_CREATED)
