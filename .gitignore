@@ -1,5 +1,7 @@
 __pycache__/
 sbots-env/
+sbots_api-env/
+
 legacy/
 doc/
 
