@@ -60,7 +60,7 @@ class ArenaTestCase(TestCase):
         result = json.loads(response.content)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn('id', result)       
-        self.assertEqual(result['status'], 'WAITING')
+        self.assertEqual(result['status'], 'SEARCHING')
         self.assertEqual(result['max_tier'], self.tier2.id)  # Tier 2
         self.assertEqual(result['min_tier'], self.tier3.id)  # Tier 3
     
@@ -157,4 +157,86 @@ class ArenaTestCase(TestCase):
         result = json.loads(response.content)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(result.get('added_tiers'), [{'id': self.tier4.id, 'channel': self.tier4.channel_id}])
-        self.assertEqual(result.get('removed_tiers'), [{'id': self.tier3.id, 'channel': self.tier3.channel_id}])        
+        self.assertEqual(result.get('removed_tiers'), [{'id': self.tier3.id, 'channel': self.tier3.channel_id}])
+
+    def test_accepted(self):
+        client = APIClient()
+        self.test_matched()
+
+        # Before accepting
+        arena = Arena.objects.filter(status="CONFIRMATION").first()        
+
+        arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()
+        arena_razen = arena.arenaplayer_set.filter(player=self.razen).get()
+        
+        self.assertEqual(arena_tropped.status, "CONFIRMATION")
+        self.assertEqual(arena_razen.status, "CONFIRMATION")
+        
+        body = {'accepted': True}
+        
+        # After one accepts
+        response = client.patch(f'/players/{self.tropped.id}/confirmation/', body, format='json')
+        result = json.loads(response.content)
+                
+        arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()        
+        self.assertTrue(result['player_accepted'])        
+        self.assertEqual(arena_tropped.status, "ACCEPTED")
+        self.assertFalse(result['all_accepted'])
+
+        obsolete_arena = Arena.objects.filter(status="WAITING").first()
+        self.assertIsNotNone(obsolete_arena)
+        self.assertEqual(len(ArenaPlayer.objects.all()), 3)
+
+        # After the other accepts
+        response = client.patch(f'/players/{self.razen.id}/confirmation/', body, format='json')
+        result = json.loads(response.content)
+
+        arena_razen = arena.arenaplayer_set.filter(player=self.razen).get()
+        self.assertTrue(result['player_accepted'])        
+        self.assertEqual(arena_razen.status, "ACCEPTED")
+        self.assertTrue(result['all_accepted'])
+
+        obsolete_arena = Arena.objects.filter(status="WAITING").first()
+        self.assertIsNone(obsolete_arena)
+        self.assertEqual(len(ArenaPlayer.objects.all()), 2)
+
+    def test_rejected(self):
+        client = APIClient()
+        self.test_matched()
+
+        # Before rejecting
+        arena = Arena.objects.filter(status="CONFIRMATION").first()
+        waiting_arena = Arena.objects.filter(created_by=self.razen).first()
+
+        self.assertEqual(arena.created_by, self.tropped)        
+        self.assertEqual(waiting_arena.status, "WAITING")
+
+        
+        arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()
+        arena_razen = arena.arenaplayer_set.filter(player=self.razen).get()
+        
+        self.assertEqual(arena_tropped.status, "CONFIRMATION")
+        self.assertEqual(arena_razen.status, "CONFIRMATION")
+                
+        # After one rejects
+        body = {'accepted': False}
+        response = client.patch(f'/players/{self.tropped.id}/confirmation/', body, format='json')
+        result = json.loads(response.content)
+
+        self.assertIsNone(Arena.objects.filter(id=arena.id).first()) # Arena Deleted
+
+        waiting_arena = Arena.objects.filter(created_by=self.razen).first()
+        self.assertEqual(waiting_arena.status, "SEARCHING")
+
+        waiting_players = waiting_arena.arenaplayer_set.all()
+        self.assertEqual(len(waiting_players), 1)
+        self.assertEqual(waiting_players[0].status, "WAITING")
+
+        # Assert Response
+        CORRECT_TIERS = [{'id': self.tier1.id, 'channel': self.tier1.channel_id}, {'id': self.tier2.id, 'channel': self.tier2.channel_id}]
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(result['player_accepted'])
+        self.assertEqual(result['player_id'], self.tropped.id)
+        self.assertEqual(result['searching_player'], self.razen.id)
+        self.assertEqual(result['tiers'], CORRECT_TIERS)

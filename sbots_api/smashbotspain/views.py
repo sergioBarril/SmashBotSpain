@@ -25,6 +25,70 @@ class PlayerViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['patch'])
+    def confirmation(self, request, pk):        
+        player = self.get_object()
+        arena_player = ArenaPlayer.objects.filter(status__in=["CONFIRMATION", "ACCEPTED"], player=player).first()
+        
+        if arena_player is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)        
+        
+        arena = arena_player.arena
+
+        players = arena.players.all()
+        other_player = arena.players.exclude(id=player.id).get()
+
+        accepted = request.data['accepted']
+
+        # Rejected
+        if not accepted:
+            searching_arena = None            
+            if player == arena.created_by:
+                other_arena = Arena.objects.filter(created_by=other_player).first()
+                other_arena.set_status("SEARCHING")
+                searching_arena = other_arena                
+                arena.delete()
+            else:
+                arena_player.delete()
+                arena.set_status("SEARCHING")
+                searching_arena = arena                
+                other_arena.delete()
+            
+            tiers = searching_arena.get_tiers()
+
+            response_body = {
+                'player_accepted': False,
+                'player_id' : player.id,
+                'searching_player': searching_arena.created_by.id,
+                'tiers': [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
+            }
+            return Response(response_body, status=status.HTTP_200_OK)
+        
+        serializer = ArenaPlayerSerializer(arena_player, data={'status' : 'ACCEPTED'}, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if the other players have already accepted        
+        unconfirmed_players = ArenaPlayer.objects.filter(arena=arena, status="CONFIRMATION")
+        all_accepted = not unconfirmed_players.exists()
+                
+        if all_accepted:
+            obsolete_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "SEARCHING"))
+            for arena in obsolete_arenas:
+                arena.delete()
+        
+        # Build response
+        response = {
+            'player_accepted' : True,
+            'player_id' : player.id,
+            'all_accepted' : all_accepted,
+        }
+
+        return Response(response, status=status.HTTP_200_OK)
+
 
 class TierViewSet(viewsets.ModelViewSet):
     queryset = Tier.objects.all()
@@ -98,7 +162,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         # Update search
         old_arena = None
         try:
-            old_arena = Arena.objects.filter(created_by=player, status="WAITING").get()
+            old_arena = Arena.objects.filter(created_by=player, status="SEARCHING").get()
 
             # Get added and removed tiers
             old_tiers = Tier.objects.filter(weight__gte=old_arena.min_tier.weight, weight__lte=old_arena.max_tier.weight)
@@ -128,8 +192,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
 
         if arenas: # Join existing arena
             arena = arenas.first()
-            arena.set_confirmation()
-            arena.add_player(player, "CONFIRMATION")            
+            arena.add_player(player, "CONFIRMATION")
+            arena.set_status("CONFIRMATION")
             arena.save()
 
             # Update your arena or make a new one anyway
@@ -140,8 +204,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 else:
                     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)                
                 
-            old_arena.set_confirmation()
-            old_arena.add_player(arena.created_by, "CONFIRMATION")
+            old_arena.set_status("WAITING")            
 
             return Response({
                 "match_found" : True,

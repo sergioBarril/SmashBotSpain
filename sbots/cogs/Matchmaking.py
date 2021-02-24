@@ -88,6 +88,8 @@ class Matchmaking(commands.Cog):
                     player1 = ctx.guild.get_member(resp_body['player_one'])
                     player2 = ctx.guild.get_member(resp_body['player_two'])
                     await ctx.send(f"Match encontrado entre **{player1.nickname()}** y **{player2.nickname()}**!")
+                    # await self.confirm_match(player1, player2)
+                    return
 
                 else:
                     for tier in resp_body['added_tiers']:
@@ -458,7 +460,7 @@ class Matchmaking(commands.Cog):
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
     #  ***********************************************
-
+        
     async def confirm_match(self, player1, player2):
         """
         This function manages the confirmation of the match, via DM.
@@ -480,7 +482,10 @@ class Matchmaking(commands.Cog):
         task1 = asyncio.create_task(send_confirmation(player1, player2))
         task2 = asyncio.create_task(send_confirmation(player2, player1))
         confirm_message1, confirm_message2 = await asyncio.gather(task1, task2)
-        
+
+        # Tasks
+        reaction_tasks = []
+                    
         @asyncio.coroutine
         async def reactions(message):
             def check_message(reaction, user):
@@ -488,6 +493,24 @@ class Matchmaking(commands.Cog):
                 is_valid_emoji = (reaction.emoji in (EMOJI_CONFIRM, EMOJI_REJECT))
 
                 return is_same_message and is_valid_emoji
+
+            def check_cancel_message(reaction, user):
+                is_same_message = (reaction.message == message)
+                is_valid_emoji = (reaction.emoji in (EMOJI_REJECT))
+
+                return is_same_message and is_valid_emoji
+
+            async def cancel_message(player):
+                cancel_message = await player.send("Parece que no contesta... Espera un poco más, o pulsa la reacción para rechazar el match.")                
+                emoji, player = await self.bot.wait_for('reaction_add', check=check_cancel_message)
+                
+                remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
+                await asyncio.gather(*remove_reactions)
+
+                await player.send("_Cancelando match..._")
+
+                for task in reaction_tasks:
+                    task.cancel()            
             
             # React
             await asyncio.gather(message.add_reaction(EMOJI_CONFIRM), message.add_reaction(EMOJI_REJECT))
@@ -502,13 +525,13 @@ class Matchmaking(commands.Cog):
                 remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
                 await asyncio.gather(*remove_reactions)
 
-            if str(emoji) == EMOJI_REJECT:
+            # API Call
+            if str(emoji) == EMOJI_REJECT:                
                 raise RejectedException(player)
-            else:
+            elif str(emoji) == EMOJI_CONFIRM:
+                c_message = await cancel_message(player)
                 await player.send(f"Aceptaste el match — ahora toca esperar a que tu rival conteste.")
         
-        reaction_tasks = []
-
         reaction_tasks.append(asyncio.create_task(reactions(confirm_message1)))
         reaction_tasks.append(asyncio.create_task(reactions(confirm_message2)))
 

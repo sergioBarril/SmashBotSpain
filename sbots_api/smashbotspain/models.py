@@ -94,6 +94,7 @@ class Main(models.Model):
 
 class Arena(models.Model):
     STATUS = [
+        ('SEARCHING', 'Searching'),
         ('WAITING', 'Waiting'),
         ('CONFIRMATION', 'Confirmation'),
         ('PLAYING', 'Playing'),
@@ -106,13 +107,14 @@ class Arena(models.Model):
     ]
     
     created_by = models.ForeignKey(Player, null=True, related_name="created_by", on_delete=models.SET_NULL)
-    status = models.CharField(max_length=12, choices=STATUS, default="WAITING")
+    status = models.CharField(max_length=12, choices=STATUS, default="SEARCHING")
     mode = models.CharField(max_length=10, choices=MODE, default="FRIENDLIES")
     
     max_tier = models.ForeignKey(Tier, null=True, related_name="max_tier", on_delete=models.SET_NULL)
     min_tier = models.ForeignKey(Tier, null=True, related_name="min_tier", on_delete=models.SET_NULL)
 
-    max_players = models.IntegerField(validators=[validators.MinValueValidator(2)], default=2)   
+    max_players = models.IntegerField(validators=[validators.MinValueValidator(2)], default=2)
+    channel_id = models.BigIntegerField(null=True, blank=True)
 
     players = models.ManyToManyField(Player, through="ArenaPlayer", blank=True)
 
@@ -120,12 +122,34 @@ class Arena(models.Model):
         return f"Arena #{self.id}"
        
     def add_player(self, player, status):
-        ArenaPlayer.objects.create(arena=self, status=status, player=player)       
+        ArenaPlayer.objects.create(arena=self, status=status, player=player)
 
-    def set_confirmation(self):
-        self.status = "CONFIRMATION"
-        for player in self.players.all():
-            player.status = "CONFIRMATION"
+    def get_tiers(self):
+        """
+        Returns the iterable with all the tiers between min_tier and max_tier
+        """
+        tiers = Tier.objects.filter(weight__gte=self.min_tier.weight)
+        tiers = tiers.filter(weight__lte=self.max_tier.weight)
+
+        return tiers.all()
+
+
+    def set_status(self, status):
+        """
+        Sets the status of the arena, and all its ArenaPlayers
+        """
+        self.status = status
+        self.save()
+
+        players_status = status
+        
+        if status == "CLOSED":
+            players_status = "GGS"
+        elif status == "SEARCHING":
+            players_status = "WAITING"
+        
+        for player in self.arenaplayer_set.all():
+            player.status = players_status
             player.save()
 
 class ArenaPlayer(models.Model):
