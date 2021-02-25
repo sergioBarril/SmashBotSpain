@@ -25,6 +25,35 @@ class PlayerViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get'])
+    def matchmaking(self, request, pk):
+        """
+        Matches the player. Requires to have created an arena through POST /arenas/.
+        """
+        player = self.get_object()
+
+        min_tier = Tier.objects.get(id=request.data['min_tier'])
+        max_tier = Tier.objects.get(id=request.data['max_tier'])
+
+        arenas = player.search(min_tier, max_tier)
+
+        if arenas: # Join existing arena
+            arena = arenas.first()
+            arena.add_player(player, "CONFIRMATION")
+            arena.set_status("CONFIRMATION")
+            arena.save()
+
+            old_arena = Arena.objects.filter(created_by=player, status="SEARCHING").first()                
+            old_arena.set_status("WAITING")
+
+            return Response({
+                "match_found" : True,
+                "player_one" : arena.created_by.id,
+                "player_two" : player_id
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({'no_match', True}, status=status.HTTP_404_NOT_FOUND)    
     
     @action(detail=True, methods=['patch'])
     def confirmation(self, request, pk):        
@@ -40,27 +69,36 @@ class PlayerViewSet(viewsets.ModelViewSet):
         other_player = arena.players.exclude(id=player.id).get()
 
         accepted = request.data['accepted']
-
+        is_timeout = request.data.get('timeout', False)
+        
         # Rejected
         if not accepted:
-            searching_arena = None            
+            searching_arena = None
             if player == arena.created_by:
                 other_arena = Arena.objects.filter(created_by=other_player).first()
                 other_arena.set_status("SEARCHING")
-                searching_arena = other_arena                
+                                
+                searching_arena = other_arena
                 arena.delete()
             else:
                 arena_player.delete()
                 arena.set_status("SEARCHING")
-                searching_arena = arena                
+                searching_arena = arena          
                 other_arena.delete()
+            
+            if not is_timeout:
+                searching_arena.rejected_players.add(player)
+                searching_arena.save()
             
             tiers = searching_arena.get_tiers()
 
             response_body = {
                 'player_accepted': False,
                 'player_id' : player.id,
+                'arena_id' : searching_arena.id,
                 'searching_player': searching_arena.created_by.id,
+                'min_tier': searching_arena.min_tier.id,
+                'max_tier': searching_arena.max_tier.id,
                 'tiers': [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
             }
             return Response(response_body, status=status.HTTP_200_OK)
@@ -74,18 +112,28 @@ class PlayerViewSet(viewsets.ModelViewSet):
         # Check if the other players have already accepted        
         unconfirmed_players = ArenaPlayer.objects.filter(arena=arena, status="CONFIRMATION")
         all_accepted = not unconfirmed_players.exists()
-                
-        if all_accepted:
-            obsolete_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "SEARCHING"))
-            for arena in obsolete_arenas:
-                arena.delete()
-        
-        # Build response
+                        
+        # Build response and cleanup
         response = {
             'player_accepted' : True,
             'player_id' : player.id,
-            'all_accepted' : all_accepted,
+            'arena_id' : arena.id,
+            'all_accepted' : all_accepted,            
         }
+
+        if all_accepted:
+            # ArenaPlayer status -> PLAYING
+            arena_players = arena.arenaplayer_set.all()
+            for arena_player in arena_players:
+                arena_player.set_status("PLAYING")            
+            arena.set_status("PLAYING")
+
+            #  Delete "search" arenas
+            obsolete_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "SEARCHING"))
+            for arena in obsolete_arenas:
+                arena.delete()                    
+        else:
+            response['waiting_for'] = unconfirmed_players.first().player.id
 
         return Response(response, status=status.HTTP_200_OK)
 
@@ -113,9 +161,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
     def get_last(self, request):
         arenas = self.get_queryset().last()
         serializer = self.get_serializer(arenas)
-        return Response(serializer.data)
+        return Response(serializer.data)        
     
-        
     def create(self, request):
         roles = request.data['roles']
         force_tier = request.data.get('force_tier', False)

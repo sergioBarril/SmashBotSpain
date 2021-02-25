@@ -33,13 +33,18 @@ class ArenaSerializer(serializers.ModelSerializer):
             return new_arena
     
     def validate(self, data):
-        if data['max_tier'] < data['min_tier']:
-            raise serializers.ValidationError(f"Estás intentando unirte a {data['min_tier'].name}, pero eres {data['max_tier'].name}.")
+        max_tier = data.get('max_tier')
+        min_tier = data.get('min_tier')
+
+        if max_tier is None or min_tier is None:
+            return data
+        elif max_tier < min_tier:
+            raise serializers.ValidationError(f"Estás intentando unirte a {min_tier.name}, pero eres {max_tier.name}.")
         return data
 
     class Meta:
         model = Arena
-        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'created_by', 'max_players', 'players')
+        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'created_by', 'max_players', 'players', 'channel_id')
 
 class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())

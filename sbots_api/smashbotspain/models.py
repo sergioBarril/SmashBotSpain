@@ -78,8 +78,13 @@ class Player(models.Model):
         arenas = Arena.objects.filter(min_tier__weight__lte = max_tier.weight)
         arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
         arenas = arenas.exclude(created_by=self)
-        return arenas
+        arenas = arenas.exclude(rejected_players=self)
 
+        my_arena = Arena.objects.filter(created_by=self).first()
+        if my_arena is not None:
+            arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
+        
+        return arenas
 
 class Main(models.Model):
     MAIN_SECOND = [
@@ -117,11 +122,12 @@ class Arena(models.Model):
     channel_id = models.BigIntegerField(null=True, blank=True)
 
     players = models.ManyToManyField(Player, through="ArenaPlayer", blank=True)
+    rejected_players = models.ManyToManyField(Player, blank=True, related_name="rejected_set")
 
     def __str__(self):
         return f"Arena #{self.id}"
        
-    def add_player(self, player, status):
+    def add_player(self, player, status="WAITING"):
         ArenaPlayer.objects.create(arena=self, status=status, player=player)
 
     def get_tiers(self):
@@ -170,6 +176,10 @@ class ArenaPlayer(models.Model):
     CAN_JOIN_STATUS = ["WAITING", "INVITED", "GG"]
     
     status = models.CharField(max_length=12, choices=STATUS)
+
+    def set_status(self, status):
+        self.status = status
+        self.save()
 
     def __str__(self):
         return f"{self.player} in {self.arena}"
