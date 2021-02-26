@@ -73,27 +73,29 @@ class PlayerViewSet(viewsets.ModelViewSet):
         
         # Rejected
         if not accepted:
-            searching_arena = None
+            searching_arena = None            
             if player == arena.created_by:
                 other_arena = Arena.objects.filter(created_by=other_player).first()
                 other_arena.set_status("SEARCHING")
-                                
                 searching_arena = other_arena
                 arena.delete()
             else:
                 arena_player.delete()
+                other_arena = Arena.objects.filter(created_by=player).first()
                 arena.set_status("SEARCHING")
-                searching_arena = arena          
-                other_arena.delete()
+                searching_arena = arena                
+                other_arena.delete()            
             
             if not is_timeout:
                 searching_arena.rejected_players.add(player)
                 searching_arena.save()
+                pass
             
             tiers = searching_arena.get_tiers()
 
             response_body = {
                 'player_accepted': False,
+                'timeout': is_timeout,
                 'player_id' : player.id,
                 'arena_id' : searching_arena.id,
                 'searching_player': searching_arena.created_by.id,

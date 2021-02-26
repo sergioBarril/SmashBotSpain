@@ -384,7 +384,7 @@ class Matchmaking(commands.Cog):
     # ************************************************
 
     async def matchmaking(self, ctx, player1, player2, resp_body):
-        match_found = True     
+        match_found = True
 
         while match_found:
             match_confirmation = await self.confirm_match(player1, player2)
@@ -392,8 +392,7 @@ class Matchmaking(commands.Cog):
             if match_confirmation.get('all_accepted', False):
                 # ACCEPTED MATCH
                 arena_id = match_confirmation['arena_id']
-                await self.set_arena(ctx, player1, player2, arena_id)
-                break
+                return await self.set_arena(ctx, player1, player2, arena_id)
             else:
                 # REJECTED MATCH, SEARCH AGAIN
                 player_id = match_confirmation['searching_player']
@@ -435,7 +434,7 @@ class Matchmaking(commands.Cog):
         await asyncio.gather(*arena_permissions)
 
         # Send arena
-        message_tasks = [player.send(f"Perfecto, dirígete a {arena.mention}") for player in match]
+        message_tasks = [player.send(f"Perfecto, dirígete a {arena.mention}.") for player in match]
         await asyncio.gather(*message_tasks)
 
         await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
@@ -443,79 +442,10 @@ class Matchmaking(commands.Cog):
         
         # await self.update_list_message()
         
-    # async def matchmaking(self, tier_range = range(1, 5)):        
-    #     # MATCH WHILE
-    #     is_reinserted = False
-    #     while match := self.is_match_possible(tier_range):
-    #         is_reinserted = False
-    #         player1, player2 = match            
-            
-    #         # Remove from all lists
-    #         asyncio.gather(*[self.remove_from_search_list(player, range(1, 5)) for player in match])            
-
-    #         # Add them to the confirmation_list
-    #         self.confirmation_list.extend(match)
-
-    #         # Send DM with confirmation
-    #         confirmation = await self.confirm_match(player1, player2)
-            
-    #         if not confirmation['accepted']:
-    #             player_to_reinsert = confirmation['player_to_reinsert']
-                
-    #             self.confirmation_list.remove(player1)
-    #             self.confirmation_list.remove(player2)
-
-    #             if confirmation['reason'] == RejectedException.REASON:
-    #                 self.rejected_list.append({player1, player2})
-    #                 asyncio.create_task(self.remove_from_rejected_list({player1, player2}))
-                
-    #             tier_range = self.current_search[player_to_reinsert]
-    #             tiers_added = await self.add_to_search_list(player_to_reinsert, tier_range)                
-
-    #             if tiers_added:
-    #                 reinsert_message = f"Te he puesto otra vez en la cola de: {', '.join([f'Tier {tier_num}' for tier_num in tiers_added])}"
-    #                 await player_to_reinsert.send(reinsert_message)
-    #                 is_reinserted = True
-    #             continue
-
-    #         # Get and lock an arena
-    #         arena = await self.make_arena()
-    #         self.arena_status[arena.name] = match
-    #         await self.update_list_message()
-                        
-    #         # Remove them from the confirmation list
-    #         self.confirmation_list.remove(player1)
-    #         self.confirmation_list.remove(player2)
-
-    #         #Set Permissions            
-    #         arena_permissions = [arena.set_permissions(player, read_messages=True, send_messages=True) for player in match]
-    #         await asyncio.gather(*arena_permissions)                        
-            
-    #         # Send arena
-    #         message_tasks = [player.send(f"Listo, dirígete a {arena.mention}") for player in match]
-    #         await asyncio.gather(*message_tasks)
-            
-    #         await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
-    #         await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")
-
     #         # Edit messages
     #         edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
     #         await asyncio.gather(*[message.edit(content=edited_text) for player in match for message in self.mention_messages.get(player, [])])
 
-    #         # Delete current_search from both players
-    #         self.current_search.pop(player1, None)
-    #         self.current_search.pop(player2, None)
-
-    #         # Check if there's still someone who can be matched in any tier
-    #         tier_range = range(1, 5)
-        
-    #     if is_reinserted:
-    #         for tier_num in tier_range:
-    #             tier = self.tier_roles[f'Tier {tier_num}']
-    #             message = await self.tier_channels[tier.name].send(f"Atención {tier.mention}, ¡**{player_to_reinsert.nickname()}** sigue buscando rival!")
-    #             if player_to_reinsert not in self.mention_messages.keys():
-    #                 self.mention_messages[player_to_reinsert] = []
-    #             self.mention_messages[player_to_reinsert].append(message)
     
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
@@ -582,9 +512,9 @@ class Matchmaking(commands.Cog):
                         html = await response.text()
                         resp_body = json.loads(html)
 
-                        all_accepted = resp_body['all_accepted']
-                        player_accepted = resp_body['player_accepted']                        
-                        
+                        all_accepted = resp_body.get('all_accepted', False)
+                        player_accepted = resp_body.get('player_accepted', False)
+
                         #  ACCEPTED, WAITING...
                         if player_accepted and not all_accepted:
                             cancel_message = await player.send("No contesta... puedes esperar un rato más, o cancelar el match.")
@@ -621,34 +551,30 @@ class Matchmaking(commands.Cog):
         reaction_tasks.append(asyncio.create_task(reactions(confirm_message2), name=f"reactions_{confirm_message2.id}"))
         
         reaction1, reaction2 = await asyncio.gather(*reaction_tasks)
-        confirmation_data = reaction1 if reaction1 is not None else reaction2        
+
+        # MESSAGES
+        confirmation_data = reaction1
+        active_player, passive_player = player1, player2
+        
+        if confirmation_data is None:
+            confirmation_data = reaction2
+            active_player, passive_player = player2, player1
+        
+        player_accepted = confirmation_data.get('player_accepted')
+        all_accepted = confirmation_data.get('all_accepted')
+        is_timeout = confirmation_data.get('timeout', False)
+        
+        if not player_accepted:
+            if is_timeout:
+                active_message = f"¿Hola? Parece que no estás... El match ha sido cancelado, y te he quitado de las listas -- puedes volver a apuntarte si quieres."
+                passive_message = f"Parece que {active_player.nickname()} no está... Te he vuelto a meter en las listas de búsqueda."
+            else:
+                active_message = f"Vale, match rechazado. Te he sacado de todas las colas."
+                passive_message = f"**{active_player.nickname()}** ha rechazado el match... ¿en otro momento, quizás?\nTe he metido en las listas otra vez."
+            
+            await asyncio.gather(active_player.send(active_message), passive_player.send(passive_message))                
         
         return confirmation_data
-
-        #     for task in reaction_tasks:
-        #         task.cancel()
-
-        #     exception_messages = {}
-            
-        #     # Different messages for the exceptions
-        #     rejected_message = f"**{e.player.nickname()}** ha rechazado el match... ¿en otro momento, quizás?"
-        #     rejecter_message = f"Vale, match rechazado."
-        #     timeouted_message = f"**{e.player.nickname()}** no responde... ¿se habrá quedado dormido?" 
-        #     timeouter_message = f"Parece que no hay nadie en casa... El match ha sido cancelado, vuelve a intentarlo e intenta estar atento."
-
-        #     exception_messages[RejectedException.REASON] = [rejected_message, rejecter_message]
-        #     exception_messages[ConfirmationTimeOutException.REASON] = [timeouted_message, timeouter_message]
-            
-        #     exception_pair = exception_messages[e.REASON]
-
-        #     if e.player == player1:
-        #         exception_pair.reverse()
-            
-        #     await asyncio.gather(player1.send(exception_pair[0]), player2.send(exception_pair[1]))
-
-        #     return {"accepted": False, "player_to_reinsert": player1 if e.player != player1 else player2, "reason" : e.REASON}
-        # return {"accepted": True}
-
 
     async def confirm_invite(self, host1, host2, player, arena):
         message = await player.send(f"**{host1.nickname()}** y **{host2.nickname()}** te invitan a jugar con ellos en su arena. ¿Aceptas?")

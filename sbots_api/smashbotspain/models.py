@@ -122,7 +122,7 @@ class Arena(models.Model):
     channel_id = models.BigIntegerField(null=True, blank=True)
 
     players = models.ManyToManyField(Player, through="ArenaPlayer", blank=True)
-    rejected_players = models.ManyToManyField(Player, blank=True, related_name="rejected_set")
+    rejected_players = models.ManyToManyField(Player, blank=True, related_name="rejected_players")
 
     def __str__(self):
         return f"Arena #{self.id}"

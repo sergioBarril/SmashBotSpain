@@ -287,6 +287,7 @@ class ArenaTestCase(TestCase):
 
         #  Rejected_players
         self.assertIn(self.tropped, waiting_arena.rejected_players.all())
+        self.assertEqual(len(waiting_arena.rejected_players.all()), 1)
 
         # Assert Response
         CORRECT_TIERS = [{'id': self.tier1.id, 'channel': self.tier1.channel_id}, {'id': self.tier2.id, 'channel': self.tier2.channel_id}]
@@ -295,4 +296,52 @@ class ArenaTestCase(TestCase):
         self.assertFalse(result['player_accepted'])
         self.assertEqual(result['player_id'], self.tropped.id)
         self.assertEqual(result['searching_player'], self.razen.id)
+        self.assertEqual(result['tiers'], CORRECT_TIERS)
+
+    def test_rejected_reverse(self):
+        client = APIClient()
+        self.test_matched()
+
+        # Before rejecting
+        arena = Arena.objects.filter(status="CONFIRMATION").first()
+        waiting_arena = Arena.objects.filter(created_by=self.razen).first()
+
+        self.assertEqual(arena.created_by, self.tropped)        
+        self.assertEqual(waiting_arena.status, "WAITING")
+
+        
+        arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()
+        arena_razen = arena.arenaplayer_set.filter(player=self.razen).get()
+        
+        self.assertEqual(arena_tropped.status, "CONFIRMATION")
+        self.assertEqual(arena_razen.status, "CONFIRMATION")
+
+        waiting_players = Arena.objects.filter(created_by=self.razen).first().arenaplayer_set.all()
+        self.assertEqual(len(waiting_players), 1)
+                
+        # After one rejects
+        body = {'accepted': False, 'timeout': False}
+        response = client.patch(f'/players/{self.razen.id}/confirmation/', body, format='json')
+        result = json.loads(response.content)
+
+        self.assertIsNone(Arena.objects.filter(id=waiting_arena.id).first()) # Arena Deleted
+
+        waiting_arena = Arena.objects.filter(created_by=self.tropped).first()
+        self.assertEqual(waiting_arena.status, "SEARCHING")
+
+        waiting_players = waiting_arena.arenaplayer_set.all()
+        self.assertEqual(len(waiting_players), 1)
+        self.assertEqual(waiting_players[0].status, "WAITING")
+
+        #  Rejected_players
+        self.assertIn(self.razen, waiting_arena.rejected_players.all())
+        self.assertEqual(len(waiting_arena.rejected_players.all()), 1)
+
+        # Assert Response
+        CORRECT_TIERS = [{'id': self.tier2.id, 'channel': self.tier2.channel_id}, {'id': self.tier3.id, 'channel': self.tier3.channel_id}]
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(result['player_accepted'])
+        self.assertEqual(result['player_id'], self.razen.id)
+        self.assertEqual(result['searching_player'], self.tropped.id)
         self.assertEqual(result['tiers'], CORRECT_TIERS)
