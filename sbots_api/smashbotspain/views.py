@@ -5,8 +5,8 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer
-from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer
+from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message
+from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer
 
 # Create your views here.
 class PlayerViewSet(viewsets.ModelViewSet):
@@ -140,6 +140,41 @@ class PlayerViewSet(viewsets.ModelViewSet):
         return Response(response, status=status.HTTP_200_OK)
 
 
+class MessageViewSet(viewsets.ModelViewSet):
+    queryset = Message.objects.all()
+    serializer_class = MessageSerializer
+
+    def create(self, request):        
+        data = request.data.get('messages', None)            
+        is_bulk = data is not None        
+        
+        if not is_bulk:
+            data = request.data
+                
+        serializer = MessageSerializer(data=data, many=is_bulk)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    def destroy(self, request, pk):
+        # Single destroy
+        message = self.get_object()
+        serializer = MessageSerializer(message)
+        serializer.data
+        message.delete()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    @action(methods=['post'], detail=False)
+    def bulk_delete(self, request):
+        # Bulk destroy
+        messages = request.data.get('messages', None)
+        if messages is None:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = self.get_serializer(messages, many=True)
+        self.perform_destroy(serializer)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 class TierViewSet(viewsets.ModelViewSet):
     queryset = Tier.objects.all()
     serializer_class = TierSerializer
@@ -228,7 +263,6 @@ class ArenaViewSet(viewsets.ModelViewSet):
             if old_serializer.is_valid():
                 old_serializer.save()
             else:
-
                 return Response({"cant_join" : "BAD_TIERS", 
                     "wanted_tier" : min_tier.name,
                     "player_tier" : max_tier.name},
@@ -253,18 +287,35 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 else:
                     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)                
                 
-            old_arena.set_status("WAITING")            
+            old_arena.set_status("WAITING")
 
+            arena_messages = Message.objects.filter(arena=arena).all()
+            old_arena_messages = Message.objects.filter(arena=old_arena).all()
+
+            messages = list(arena_messages) + list(old_arena_messages)
+            
+            
             return Response({
                 "match_found" : True,
                 "player_one" : arena.created_by.id,
-                "player_two" : player_id
+                "player_two" : player_id,
+                "messages" : [{'id': message.id, 'channel': message.tier.channel_id} for message in messages]
             }, status=status.HTTP_201_CREATED)
         
         if old_arena: # No match available, just updated search
             response_data = old_serializer.data.copy()
             response_data['added_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in added_tiers]
             response_data['removed_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in removed_tiers]
+
+            # Remove messages from tiers
+            removed_messages = []
+            for tier in removed_tiers:
+                tier_messages = Message.objects.filter(tier=tier, arena=old_arena).all()
+                for message in tier_messages:
+                    removed_messages.append({'id': message.id, 'channel': tier.channel_id})
+                    message.delete()
+            response_data['removed_messages'] = removed_messages
+
             return Response(response_data, status=status.HTTP_200_OK)
         else: # Create new arena
             serializer = ArenaSerializer(data=data)

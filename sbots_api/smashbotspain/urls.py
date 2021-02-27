@@ -7,6 +7,7 @@ from smashbotspain import views
 router = DefaultRouter()
 router.register(r'players', views.PlayerViewSet)
 router.register(r'arenas', views.ArenaViewSet)
+router.register(r'messages', views.MessageViewSet)
 
 # The API URLs are now determined automatically by the router.
 # Additionally, we include the login URLs for the browsable API.

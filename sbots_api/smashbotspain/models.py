@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.postgres.fields import ArrayField
 from django.core import validators
 from functools import total_ordering
 
@@ -183,3 +184,8 @@ class ArenaPlayer(models.Model):
 
     def __str__(self):
         return f"{self.player} in {self.arena}"
+
+class Message(models.Model):
+    id = models.BigIntegerField(primary_key=True)
+    tier = models.ForeignKey(Tier, on_delete=models.CASCADE)
+    arena = models.ForeignKey(Arena, on_delete=models.CASCADE)

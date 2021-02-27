@@ -87,32 +87,48 @@ class Matchmaking(commands.Cog):
                 if resp_body['match_found']:
                     player1 = ctx.guild.get_member(resp_body['player_one'])
                     player2 = ctx.guild.get_member(resp_body['player_two'])
-                    await ctx.send(f"Match encontrado entre **{player1.nickname()}** y **{player2.nickname()}**!")
-                    await self.matchmaking(ctx, player1, player2, resp_body)
-                    return
+
+                    messages = resp_body.get('messages', [])
+                    await self.edit_messages(ctx, messages, f"¡Match encontrado entre **{player1.nickname()}** y **{player2.nickname()}**!")                    
+                    return await self.matchmaking(ctx, player1, player2, resp_body)                    
 
                 else:
+                    mention_messages = []
                     for tier in resp_body['added_tiers']:
                         tier_role = ctx.guild.get_role(tier['id'])
                         tier_channel = ctx.guild.get_channel(tier['channel'])
-
-                        await tier_channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar.")
+                        
+                        message = await tier_channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar.")
+                        mention_messages.append({'id': message.id, 'tier': tier_role.id, 'arena': resp_body['id']})
+                    
+                    await self.save_messages(mention_messages)
             
             # UPDATE SEARCH
             elif response.status == 200:
                 html = await response.text()
                 resp_body = json.loads(html)
                 
+                # Add tiers
+                mention_messages = []
                 for tier in resp_body['added_tiers']:
                     tier_role = ctx.guild.get_role(tier['id'])
-                    tier_channel = ctx.guild.get_channel(tier['channel'])
+                    tier_channel = ctx.guild.get_channel(tier['channel'])                    
+                    
+                    message = await tier_channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar.")
+                    mention_messages.append({'id': message.id, 'tier': tier_role.id, 'arena': resp_body['id']})
+                
+                await self.save_messages(mention_messages)
 
-                    await tier_channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** busca rival! Escribe el comando `.friendlies` para retarle a jugar.")
+                # Remove tiers
                 if not resp_body['added_tiers']:
                     removed_roles = [ctx.guild.get_role(tier['id']) for tier in resp_body['removed_tiers']]
                     tiers_removed_str = ", ".join([role.name for role in removed_roles])
 
-                    await ctx.send(f"Vale **{player.nickname()}**, has dejado de buscar en: {tiers_removed_str}.")                
+                    await ctx.send(f"Vale **{player.nickname()}**, has dejado de buscar en: {tiers_removed_str}.")
+                
+                removed_messages = resp_body.get('removed_messages', [])
+                await self.delete_messages(ctx, removed_messages)
+
             
             # STATUS_CONFLICT ERROR
             elif response.status == 409:
@@ -147,9 +163,6 @@ class Matchmaking(commands.Cog):
                     error_message = "\n".join([error[0] for error in errors.values()])
                 await ctx.send(error_message)
             return
-        
-        # Matchmaking
-        # await self.matchmaking(tier_range)
 
     @friendlies.error
     async def friendlies_error(self, ctx, error):
@@ -267,6 +280,56 @@ class Matchmaking(commands.Cog):
             pass
         else:
             print(error)
+
+
+
+    #  ************************************
+    #             M E S S A G E S
+    #  ************************************
+
+    async def edit_messages(self, ctx, messages, text):
+        if not messages:
+            return False
+        
+        edit_tasks = []
+        for message_data in messages:
+            channel = ctx.guild.get_channel(message_data['channel'])
+            try:
+                message = await channel.fetch_message(message_data['id'])
+                edit_tasks.append(message.edit(content=text))
+            except discord.NotFound:
+                print(f"Couldn't find message with id {message_data['id']}")
+                return False            
+        
+        await asyncio.gather(*edit_tasks)
+        return True
+
+    async def save_messages(self, messages):
+        if not messages:
+            return False
+        
+        body = {'messages' : messages}
+        
+        async with self.bot.session.post('http://127.0.0.1:8000/messages/', json=body) as response:
+            if response.status != 201:
+                print("ERROR CREATING MESSAGES")
+                return False
+        return True
+        
+    
+    async def delete_messages(self, ctx, messages):
+        if not messages:
+            return False
+        
+        delete_tasks = []        
+        
+        for message_data in messages:
+            channel = ctx.guild.get_channel(message_data['channel'])            
+            message = await channel.fetch_message(int(message_data['id']))
+            delete_tasks.append(message.delete())
+        
+        await asyncio.gather(*delete_tasks)
+        return True
 
     #  ************************************
     #              T I E R S
@@ -566,8 +629,8 @@ class Matchmaking(commands.Cog):
         
         if not player_accepted:
             if is_timeout:
-                active_message = f"¿Hola? Parece que no estás... El match ha sido cancelado, y te he quitado de las listas -- puedes volver a apuntarte si quieres."
-                passive_message = f"Parece que {active_player.nickname()} no está... Te he vuelto a meter en las listas de búsqueda."
+                passive_message = f"¿Hola? Parece que no estás... El match ha sido cancelado, y te he quitado de las listas -- puedes volver a apuntarte si quieres."
+                active_message = f"Parece que {passive_player.nickname()} no está... Te he vuelto a meter en las listas de búsqueda."
             else:
                 active_message = f"Vale, match rechazado. Te he sacado de todas las colas."
                 passive_message = f"**{active_player.nickname()}** ha rechazado el match... ¿en otro momento, quizás?\nTe he metido en las listas otra vez."

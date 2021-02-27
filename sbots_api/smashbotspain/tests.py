@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 
 # Models
-from smashbotspain.models import Arena, Player, ArenaPlayer, Tier
+from smashbotspain.models import Arena, Player, ArenaPlayer, Tier, Message
 
 def make_player(id, name, tier=None):
     player = Player(
@@ -345,3 +345,67 @@ class ArenaTestCase(TestCase):
         self.assertEqual(result['player_id'], self.razen.id)
         self.assertEqual(result['searching_player'], self.tropped.id)
         self.assertEqual(result['tiers'], CORRECT_TIERS)
+
+class MessageTestCase(TestCase):
+    def setUp(self):
+        # Setup Players
+        self.tropped = make_player(id=12345678987654, name="Tropped")
+        self.razen = make_player(id=45678987654321, name="Razenokis")        
+        
+        # Setup Tiers
+        self.tier1 = make_tier(id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
+        self.tier2 = make_tier(id=54678987654, name="Tier 2", channel_id=9393938, weight=3)
+        self.tier3 = make_tier(id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
+        self.tier4 = make_tier(id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
+
+        # Setup 1 Arena
+        arena_test_case = ArenaTestCase()
+        arena_test_case.setUp()
+        arena_test_case.test_matched()
+
+        self.arena = Arena.objects.first()        
+
+        # Setup Messages
+        self.message1 = {'id': 17414131341, 'tier': self.tier3.id, 'arena': self.arena.id}
+        self.message2 = {'id': 81548391843, 'tier': self.tier2.id, 'arena': self.arena.id}
+        self.message3 = {'id': 58348334186, 'tier': self.tier1.id, 'arena': self.arena.id}
+    
+    def test_create(self):
+        client = APIClient()
+    
+        # BULK  
+        body = {'messages' : [self.message1, self.message2] }
+
+        response = client.post(f'/messages/', body, format='json')
+        result = json.loads(response.content)        
+                
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(result), 2)
+
+        # SIMPLE
+        response = client.post(f'/messages/', self.message3, format='json')
+        result = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        self.assertEqual(result['id'], self.message3['id'])
+        self.assertEqual(result['tier'], self.message3['tier'])
+        self.assertEqual(result['arena'], self.message3['arena'])
+
+        self.assertEqual(len(Message.objects.all()), 3)
+
+    def test_destroy(self):
+        client = APIClient()
+        self.test_create()        
+        
+        # Single
+        response = client.delete(f"/messages/{self.message3['id']}/")
+        result = json.loads(response.content)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        self.assertEqual(result['id'], self.message3['id'])
+        self.assertEqual(result['tier'], self.message3['tier'])
+        self.assertEqual(result['arena'], self.message3['arena'])
+
+        self.assertFalse(Message.objects.filter(id=self.message3['id']).exists())

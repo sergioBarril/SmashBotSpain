@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from smashbotspain.models import Player, Arena, Tier, ArenaPlayer
+from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message
 
 class PlayerSerializer(serializers.ModelSerializer):
     regions = serializers.StringRelatedField(many=True, required=False)
@@ -18,6 +18,8 @@ class ArenaSerializer(serializers.ModelSerializer):
     min_tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
 
     players = serializers.PrimaryKeyRelatedField(many=True, required=False, read_only=True)
+
+    messages = serializers.PrimaryKeyRelatedField(queryset=Message.objects.all(), required=False)
     
     def create(self, validated_data):
         new_arena = Arena.objects.create(**validated_data)        
@@ -44,7 +46,7 @@ class ArenaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Arena
-        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'created_by', 'max_players', 'players', 'channel_id')
+        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'created_by', 'max_players', 'players', 'channel_id', 'messages')
 
 class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())
@@ -58,3 +60,8 @@ class TierSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tier
         fields = ('id', 'name', 'weight', 'channel_id')
+
+class MessageSerializer(serializers.ModelSerializer):    
+    class Meta:
+        model = Message
+        fields = ('id', 'tier', 'arena')
