@@ -222,22 +222,26 @@ class Matchmaking(commands.Cog):
     @commands.command()
     async def cancel(self, ctx):
         player = ctx.author
-        has_removed = await self.remove_from_search_list(player, range(1, 5))
-        
-        if has_removed:
-            await ctx.send(f"Vale **{player.nickname()}**, te saco de la cola. ¡Hasta pronto!")
-            
-            # Delete mention messages
-            for message in self.mention_messages.get(player, []):
-                await message.delete()            
-            self.mention_messages.pop(player, None)
 
-            # Delete search record
-            self.current_search.pop(player, None)
+        body = {'player' : player.id}
         
-        else:
-            await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
+        async with self.bot.session.get(f'http://127.0.0.1:8000/arenas/cancel/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+                
+                await ctx.send(f"Vale **{player.nickname()}**, te saco de la cola. ¡Hasta pronto!")
+                
+                #  Delete mention messages
+                messages = resp_body.get('messages', [])
+                await self.delete_messages(ctx, messages)
+                
+            elif response.status == 400:
+                html = await response.text()
+                resp_body = json.loads(html)
 
+                await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
+    
     @commands.command()
     @commands.check(in_their_arena)
     async def invite(self, ctx, guest : typing.Optional[discord.Member]):

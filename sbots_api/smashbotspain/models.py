@@ -105,6 +105,7 @@ class Arena(models.Model):
         ('CONFIRMATION', 'Confirmation'),
         ('PLAYING', 'Playing'),
         ('CLOSED', 'Closed'),
+        ('CANCELLED', 'Cancelled')
     ]
     
     MODE = [
@@ -149,15 +150,22 @@ class Arena(models.Model):
         self.save()
 
         players_status = status
+        arena_players = self.arenaplayer_set.all()        
         
+        if status == "CANCELLED":
+            for arena_player in arena_players:
+                arena_player.delete()
+            return status
+
         if status == "CLOSED":
             players_status = "GGS"
         elif status == "SEARCHING":
-            players_status = "WAITING"
+            players_status = "WAITING"        
         
         for player in self.arenaplayer_set.all():
             player.status = players_status
             player.save()
+        return status
 
 class ArenaPlayer(models.Model):
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE, null=True, blank=True)

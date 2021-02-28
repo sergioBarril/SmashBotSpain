@@ -194,11 +194,23 @@ class ArenaViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(playing_arenas, many=True)
         return Response(serializer.data)
 
-    @action(detail=False)
-    def get_last(self, request):
-        arenas = self.get_queryset().last()
-        serializer = self.get_serializer(arenas)
-        return Response(serializer.data)        
+    @action(detail=False, methods=['post'])
+    def cancel(self, request):
+        player_id = request.data['player']        
+        searching_arenas = Arena.objects.filter(status="SEARCHING", created_by=player_id).all()
+
+        if not searching_arenas:
+            return Response({'not_searching': "NOT_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
+
+        for arena in searching_arenas:
+            arena.set_status("CANCELLED")
+
+        messages = []
+        for message in arena.message_set.all():
+            messages.append({'id': message.id, 'channel': message.tier.channel_id})
+            message.delete()
+        
+        return Response({'messages': messages}, status=status.HTTP_200_OK)
     
     def create(self, request):
         roles = request.data['roles']
