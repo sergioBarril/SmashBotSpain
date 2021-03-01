@@ -78,8 +78,9 @@ class Player(models.Model):
     def search(self, min_tier, max_tier):
         arenas = Arena.objects.filter(min_tier__weight__lte = max_tier.weight)
         arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
+        arenas = arenas.filter(status="SEARCHING")
         arenas = arenas.exclude(created_by=self)
-        arenas = arenas.exclude(rejected_players=self)
+        arenas = arenas.exclude(rejected_players=self)        
 
         my_arena = Arena.objects.filter(created_by=self).first()
         if my_arena is not None:
@@ -197,3 +198,19 @@ class Message(models.Model):
     id = models.BigIntegerField(primary_key=True)
     tier = models.ForeignKey(Tier, on_delete=models.CASCADE)
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE)
+
+class Guild(models.Model):
+    id = models.BigIntegerField(primary_key=True)
+    spam_channel = models.BigIntegerField(null=True, blank=True)
+    flairing_channel = models.BigIntegerField(null=True, blank=True)
+    list_channel = models.BigIntegerField(null=True, blank=True)
+    list_message = models.BigIntegerField(null=True, blank=True)
+    
+    friendlies_timeout = models.IntegerField(default=600,
+        validators=[
+            validators.MinValueValidator(10)
+        ])
+    ggs_time = models.IntegerField(default=300,
+        validators=[
+            validators.MinValueValidator(10)
+    ])

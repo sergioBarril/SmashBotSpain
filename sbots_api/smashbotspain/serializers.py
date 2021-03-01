@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message
+from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild
 
 class PlayerSerializer(serializers.ModelSerializer):
     regions = serializers.StringRelatedField(many=True, required=False)
@@ -65,3 +65,8 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = ('id', 'tier', 'arena')
+
+class GuildSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Guild
+        fields = '__all__'

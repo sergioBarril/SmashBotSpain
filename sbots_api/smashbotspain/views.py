@@ -5,8 +5,8 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message
-from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer
+from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild
+from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer
 
 # Create your views here.
 class PlayerViewSet(viewsets.ModelViewSet):
@@ -178,6 +178,10 @@ class MessageViewSet(viewsets.ModelViewSet):
 class TierViewSet(viewsets.ModelViewSet):
     queryset = Tier.objects.all()
     serializer_class = TierSerializer
+
+class GuildViewSet(viewsets.ModelViewSet):
+    queryset = Guild.objects.all()
+    serializer_class = GuildSerializer
 
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()

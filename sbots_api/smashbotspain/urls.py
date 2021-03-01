@@ -8,6 +8,8 @@ router = DefaultRouter()
 router.register(r'players', views.PlayerViewSet)
 router.register(r'arenas', views.ArenaViewSet)
 router.register(r'messages', views.MessageViewSet)
+router.register(r'guilds', views.GuildViewSet)
+router.register(r'tiers', views.TierViewSet)
 
 # The API URLs are now determined automatically by the router.
 # Additionally, we include the login URLs for the browsable API.
