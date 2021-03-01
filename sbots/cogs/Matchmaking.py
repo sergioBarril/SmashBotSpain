@@ -17,7 +17,7 @@ from .params.matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CO
                     WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE,
                     FRIENDLIES_TIMEOUT)
 
-from .checks.matchmaking_checks import (in_their_arena, in_tier_channel)
+from .checks.matchmaking_checks import (in_arena, in_tier_channel)
 
 class Matchmaking(commands.Cog):
     
@@ -172,45 +172,54 @@ class Matchmaking(commands.Cog):
             print(error)
 
     @commands.command()
-    @commands.check(in_their_arena)
+    @commands.check(in_arena)
     async def ggs(self, ctx):
-        arena = ctx.channel
-        player = ctx.author
-        arena_players = self.arena_status[arena.name]
+        arena_channel = ctx.channel        
 
-        if len(arena_players) > 2:
-            await ctx.send(f"GGs, **{ctx.author.nickname()}** lo deja por hoy.")
-            await self.remove_arena_permissions(player, arena)
+        body = {
+            'channel_id' : arena_channel.id
+        }
 
-            # Edit leaver message
-            edited_text = f"**{player.nickname()}** ya ha terminado de jugar."
-            await asyncio.gather(*[message.edit(content=edited_text) for message in self.mention_messages.get(player, [])])
-            self.mention_messages.pop(player, None)
-            arena_players.remove(player)
+        async with self.bot.session.post('http://127.0.0.1:8000/arenas/ggs/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
 
-            # Edit other messages
-            player1, player2 = arena_players
-            edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
-            await asyncio.gather(*[message.edit(content=edited_text) for member in arena_players for message in self.mention_messages.get(member, [])])        
+                messages = resp_body.get('messages', [])
+                player_ids = resp_body.get('players', [])
+
+                players = [ctx.guild.get_member(player_id) for player_id in player_ids]
+                player1, player2 = players
+
+                text = f"**{player1.nickname()}** y **{player2.nickname()}** ya han terminado de jugar."
+                await self.edit_messages(ctx, messages, text)
+                
+                await ctx.send("GGs. ¡Gracias por jugar!")
+                
+                # Delete arena
+                await asyncio.sleep(GGS_ARENA_COUNTDOWN)
+                await arena_channel.delete()
+            else:
+                await ctx.send("GGs. ¡Gracias por jugar!")
         
-        else:
-            await ctx.send("GGs, ¡gracias por jugar!")                
-                    
-            # Edit messages
-            match = arena_players
-            player1, player2 = match            
-
-            edited_text = f"**{player1.nickname()}** y **{player2.nickname()}** ya han terminado de jugar."
-            await asyncio.gather(*[message.edit(content=edited_text) for member in match for message in self.mention_messages.get(member, [])])
-            
-            for member in match:
-                self.mention_messages.pop(player, None)
-            
-            # Delete arena
-            await asyncio.sleep(GGS_ARENA_COUNTDOWN)
-            await self.delete_arena(arena)
         
-        return await self.update_list_message()
+        
+        # if len(arena_players) > 2:
+        #     await ctx.send(f"GGs, **{ctx.author.nickname()}** lo deja por hoy.")
+        #     await self.remove_arena_permissions(player, arena)
+
+        #     # Edit leaver message
+        #     edited_text = f"**{player.nickname()}** ya ha terminado de jugar."
+        #     await asyncio.gather(*[message.edit(content=edited_text) for message in self.mention_messages.get(player, [])])
+        #     self.mention_messages.pop(player, None)
+        #     arena_players.remove(player)
+
+        #     # Edit other messages
+        #     player1, player2 = arena_players
+        #     edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
+        #     await asyncio.gather(*[message.edit(content=edited_text) for member in arena_players for message in self.mention_messages.get(member, [])])
+        
+        # return await self.update_list_message()
 
     @ggs.error
     async def ggs_error(self, ctx, error):
@@ -225,7 +234,7 @@ class Matchmaking(commands.Cog):
 
         body = {'player' : player.id}
         
-        async with self.bot.session.get(f'http://127.0.0.1:8000/arenas/cancel/', json=body) as response:
+        async with self.bot.session.post(f'http://127.0.0.1:8000/arenas/cancel/', json=body) as response:
             if response.status == 200:
                 html = await response.text()
                 resp_body = json.loads(html)
@@ -240,10 +249,17 @@ class Matchmaking(commands.Cog):
                 html = await response.text()
                 resp_body = json.loads(html)
 
-                await ctx.send(f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.")
+                error_messages = {
+                    'NOT_SEARCHING' : f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.",
+                    'CONFIRMATION' : f"Ya has encontrado match. Acéptalo si quieres jugar, recházalo si no.",
+                    'ACCEPTED' : f"Has aceptado el match... espera a que tu rival acepte o cancela el match desde ahí.",
+                    'PLAYING' : f"¡Ya estás jugando! Cierra la arena con `.ggs`.",
+                }
+
+                await ctx.send(error_messages[resp_body.get('not_searching', 'NOT_SEARCHING')])
     
     @commands.command()
-    @commands.check(in_their_arena)
+    @commands.check(in_arena)
     async def invite(self, ctx, guest : typing.Optional[discord.Member]):
         host = ctx.author
         arena = ctx.channel

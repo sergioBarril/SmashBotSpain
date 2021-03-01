@@ -195,13 +195,47 @@ class ArenaViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=['post'])
+    def ggs(self, request):                
+        channel_id = request.data['channel_id']
+        arena = Arena.objects.filter(channel_id=channel_id).first()
+
+        if not arena or arena.status != "PLAYING":
+            return Response({'not_playing': "NOT_PLAYING"}, status=status.HTTP_400_BAD_REQUEST)
+
+        arena.set_status("CLOSED")
+        
+        # Remove channel_id
+        arena.channel_id = None
+        arena.save()
+
+        # Get players
+        players = []
+        for player in arena.players.all():
+            players.append(player.id)
+
+        # Remove messages
+        messages = []
+        for message in arena.message_set.all():
+            messages.append({'id': message.id, 'channel': message.tier.channel_id})
+            message.delete()
+        
+        return Response({'messages' : messages, 'players' : players}, status=status.HTTP_200_OK)        
+    
+    @action(detail=False, methods=['post'])
     def cancel(self, request):
-        player_id = request.data['player']        
+        player_id = request.data['player']
+
+        player = Player.objects.get(id=player_id)
+        player_status = player.status()
         searching_arenas = Arena.objects.filter(status="SEARCHING", created_by=player_id).all()
 
-        if not searching_arenas:
+        #  CAN'T CANCEL
+        if not player_status or (player_status in ArenaPlayer.CAN_JOIN_STATUS and not searching_arenas):
             return Response({'not_searching': "NOT_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
+        elif not searching_arenas:
+            return Response({'not_searching' : player_status}, status=status.HTTP_400_BAD_REQUEST)
 
+        #  CANCEL
         for arena in searching_arenas:
             arena.set_status("CANCELLED")
 
