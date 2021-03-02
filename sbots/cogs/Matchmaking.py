@@ -39,10 +39,10 @@ class Matchmaking(commands.Cog):
         await self.delete_arenas()
         
         
-        # Message that will have the updated search lists
-        list_channel = self.guild.get_channel(channel_id=LIST_CHANNEL_ID)
-        list_message = await list_channel.fetch_message(LIST_MESSAGE_ID)                        
-        self.list_message = list_message
+        # # Message that will have the updated search lists
+        # list_channel = self.guild.get_channel(channel_id=LIST_CHANNEL_ID)
+        # list_message = await list_channel.fetch_message(LIST_MESSAGE_ID)                        
+        # self.list_message = list_message
         
         self.tier_roles = {}
         self.tier_channels = {}
@@ -55,7 +55,7 @@ class Matchmaking(commands.Cog):
             self.tier_channels[tier_name] = channel
         
         self.reset_matchmaking.start()
-        await self.update_list_message()
+        # await self.update_list_message()
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(in_tier_channel)
@@ -102,6 +102,7 @@ class Matchmaking(commands.Cog):
                         mention_messages.append({'id': message.id, 'tier': tier_role.id, 'arena': resp_body['id']})
                     
                     await self.save_messages(mention_messages)
+                    await self.update_list_message(guild=ctx.guild)
             
             # UPDATE SEARCH
             elif response.status == 200:
@@ -128,7 +129,7 @@ class Matchmaking(commands.Cog):
                 
                 removed_messages = resp_body.get('removed_messages', [])
                 await self.delete_messages(ctx, removed_messages)
-
+                await self.update_list_message(guild=ctx.guild)
             
             # STATUS_CONFLICT ERROR
             elif response.status == 409:
@@ -194,7 +195,8 @@ class Matchmaking(commands.Cog):
                 text = f"**{player1.nickname()}** y **{player2.nickname()}** ya han terminado de jugar."
                 await self.edit_messages(ctx, messages, text)
                 
-                await ctx.send("GGs. ¡Gracias por jugar!")
+                await ctx.send("GGs. ¡Gracias por jugar!")                
+                await self.update_list_message(guild=ctx.guild)
                 
                 # Delete arena
                 await asyncio.sleep(GGS_ARENA_COUNTDOWN)
@@ -257,6 +259,8 @@ class Matchmaking(commands.Cog):
                 }
 
                 await ctx.send(error_messages[resp_body.get('not_searching', 'NOT_SEARCHING')])
+            
+            await self.update_list_message(guild=ctx.guild)
     
     @commands.command()
     @commands.check(in_arena)
@@ -470,7 +474,7 @@ class Matchmaking(commands.Cog):
         match_found = True
 
         while match_found:
-            match_confirmation = await self.confirm_match(player1, player2)
+            match_confirmation = await self.confirm_match(ctx, player1, player2)
 
             if match_confirmation.get('all_accepted', False):
                 # ACCEPTED MATCH
@@ -490,6 +494,7 @@ class Matchmaking(commands.Cog):
                         player1 = ctx.guild.get_member(resp_body['player_one'])
                         player2 = ctx.guild.get_member(resp_body['player_two'])
                         match_found = True
+                        await self.update_list_message(guild=ctx.guild)
                     
                     elif response.status == 404:
                         #  Ping tiers again
@@ -499,7 +504,8 @@ class Matchmaking(commands.Cog):
                         for tier in tiers:
                             channel = ctx.guild.get_channel(tier['channel'])
                             tier_role = ctx.guild.get_role(tier['id'])
-                            await channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** sigue buscando rival!")                                               
+                            await channel.send(f"Atención {tier_role.mention}, ¡**{player.nickname()}** sigue buscando rival!")
+                            await self.update_list_message(guild=ctx.guild)
                         return
 
     async def set_arena(self, ctx, player1, player2, arena_id):
@@ -521,7 +527,8 @@ class Matchmaking(commands.Cog):
         await asyncio.gather(*message_tasks)
 
         await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
-        await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")                
+        await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")
+        await self.update_list_message(guild=ctx.guild)
         
         # await self.update_list_message()
         
@@ -534,7 +541,7 @@ class Matchmaking(commands.Cog):
     #          C  O  N  F  I  R  M  A  T  I  O  N
     #  ***********************************************
         
-    async def confirm_match(self, player1, player2):
+    async def confirm_match(self, ctx, player1, player2):
         """
         This function manages the confirmation of the match, via DM.
 
@@ -554,6 +561,7 @@ class Matchmaking(commands.Cog):
         task1 = asyncio.create_task(send_confirmation(player1, player2))
         task2 = asyncio.create_task(send_confirmation(player2, player1))
         confirm_message1, confirm_message2 = await asyncio.gather(task1, task2)
+        await self.update_list_message(guild=ctx.guild)
 
         # Tasks
         reaction_tasks = []
@@ -582,7 +590,8 @@ class Matchmaking(commands.Cog):
                     is_timeout = False
                 except asyncio.TimeoutError:                
                     emoji = None
-                    is_timeout = True
+                    player = message.channel.recipient
+                    is_timeout = True                
                 finally:
                     remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
                     await asyncio.gather(*remove_reactions)
@@ -778,25 +787,40 @@ class Matchmaking(commands.Cog):
     #           L I S T
     # *******************************
 
-    async def update_list_message(self):        
-        response = ""
-        
-        for tier in TIER_NAMES:
-            players = ", ".join([player.nickname() for player in self.search_list[tier]])
-            players = players if players else " "
-            response += f"**{tier}**:\n```{players}```\n"
-        
-        if self.arena_status.values():
-            response += f"**ARENAS:**\n"
-        for match in self.arena_status.values():            
-            match_message = f"**{match[0].nickname()}** ({self.get_tier(match[0]).name})"
-            
-            for player in match[1:]:
-                match_message += f" vs. **{player.nickname()}** ({self.get_tier(player).name})"
+    async def update_list_message(self, guild=None):
 
-            response += f"{match_message}\n"                    
-        
-        await self.list_message.edit(content=response)
+        new_message = "__**FRIENDLIES**__\n"
+        async with self.bot.session.get(f'http://127.0.0.1:8000/guilds/{guild.id}/list_message/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                for tier in resp_body['tiers']:
+                    players = [guild.get_member(player_id) for player_id in tier['players']]
+                    player_names = ", ".join([player.nickname() for player in players])
+                    new_message += f"**{tier['name']}**:\n```{player_names} ```\n"
+                
+                if resp_body['confirmation']:
+                    new_message += "\n**CONFIRMANDO:**\n"
+
+                for arena in resp_body['confirmation']:
+                    player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier']} for player in arena]
+                    new_message += f"**{player1['name']}** ({player1['tier']}) vs. **{player2['name']}** ({player2['tier']})\n"
+                
+                if resp_body['playing']:
+                    new_message += "\n**ARENAS:**\n"
+                
+                for arena in resp_body['playing']:
+                    player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier']} for player in arena]
+                    new_message += f"**{player1['name']}** ({player1['tier']}) vs. **{player2['name']}** ({player2['tier']})\n"
+
+                list_channel = self.guild.get_channel(resp_body['list_channel'])
+                list_message = await list_channel.fetch_message(resp_body['list_message'])
+
+                return await list_message.edit(content=new_message)
+            else:
+                print("Error")
+                return False        
     
     async def invite_mention_list(self, ctx, tier_range):
         response = (f"**__Lista de menciones:__**\n"

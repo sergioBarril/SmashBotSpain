@@ -42,6 +42,9 @@ class Tier(models.Model):
         if not isinstance(other, Tier):
             return False
         return self.id == other.id
+    
+    def between(self, min_tier, max_tier):
+        return min_tier.weight <= self.weight and self.weight <= max_tier.weight
 
 class Player(models.Model):
     id = models.BigIntegerField(primary_key=True)

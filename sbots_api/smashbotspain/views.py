@@ -182,6 +182,40 @@ class TierViewSet(viewsets.ModelViewSet):
 class GuildViewSet(viewsets.ModelViewSet):
     queryset = Guild.objects.all()
     serializer_class = GuildSerializer
+    
+    @action(detail=True)
+    def list_message(self, request, pk):
+        guild = self.get_object()
+        
+        searching_arenas = Arena.objects.filter(status="SEARCHING")
+        tiers = Tier.objects.order_by('-weight').all()
+        
+        response = {
+            'tiers' : [],
+            'confirmation' : [],
+            'playing': [],
+            'list_channel': guild.list_channel,
+            'list_message': guild.list_message
+        }
+        
+        # TIERS        
+        tier_lists = response['tiers']
+        for tier in tiers:
+            tier_lists.append({'name' : tier.name, 'players': [arena.created_by.id for arena in searching_arenas
+                                                                if tier.between(arena.min_tier, arena.max_tier)]})
+        # CONFIRMATION
+        confirmation_arenas = Arena.objects.filter(status="CONFIRMATION")
+        confirmation_list = response['confirmation']
+        for arena in confirmation_arenas:
+            confirmation_list.append([{'id' : player.id, 'tier': player.tier.name, 'status': player.status()} for player in arena.players.all()])
+        
+        # PLAYING        
+        playing_arenas = Arena.objects.filter(status="PLAYING")
+        playing_list = response['playing']
+        for arena in playing_arenas:
+            playing_list.append([{'id' : player.id, 'tier': player.tier.name, 'status': player.status()} for player in arena.players.all()])
+        
+        return Response(response, status=status.HTTP_200_OK)        
 
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()
