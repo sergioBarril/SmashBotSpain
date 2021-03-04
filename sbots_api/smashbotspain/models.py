@@ -6,17 +6,39 @@ from functools import total_ordering
 
 # Create your models here.
 
+class Guild(models.Model):
+    id = models.BigIntegerField(primary_key=True)
+    spam_channel = models.BigIntegerField(null=True, blank=True)
+    flairing_channel = models.BigIntegerField(null=True, blank=True)
+    list_channel = models.BigIntegerField(null=True, blank=True)
+    list_message = models.BigIntegerField(null=True, blank=True)
+    
+    match_timeout = models.IntegerField(default=600,
+        validators=[
+            validators.MinValueValidator(10)
+    ])
+    
+    cancel_time = models.IntegerField(default=90,
+        validators=[
+            validators.MinValueValidator(10)
+    ])
+
+    ggs_time = models.IntegerField(default=300,
+        validators=[
+            validators.MinValueValidator(10)
+    ])
+
 class Region(models.Model):
     id = models.BigIntegerField(primary_key=True)
     name = models.CharField(max_length=50)
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
     
     def __str__(self):
         return self.name 
 
 class Character(models.Model):
     id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=30)
-    
+    name = models.CharField(max_length=30)        
 
     def __str__(self):
         return self.name 
@@ -31,6 +53,7 @@ class Tier(models.Model):
     name = models.CharField(max_length=15)
     weight = models.IntegerField(default=0)
     channel_id = models.BigIntegerField()
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
         return self.name
@@ -78,8 +101,9 @@ class Player(models.Model):
         pass
         # return not arena_player.exists()
     
-    def search(self, min_tier, max_tier):
-        arenas = Arena.objects.filter(min_tier__weight__lte = max_tier.weight)
+    def search(self, min_tier, max_tier, guild):
+        arenas = Arena.objects.filter(guild=guild)
+        arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)
         arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
         arenas = arenas.filter(status="SEARCHING")
         arenas = arenas.exclude(created_by=self)
@@ -117,6 +141,7 @@ class Arena(models.Model):
         ("RANKED", "Ranked")
     ]
     
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
     created_by = models.ForeignKey(Player, null=True, related_name="created_by", on_delete=models.SET_NULL)
     status = models.CharField(max_length=12, choices=STATUS, default="SEARCHING")
     mode = models.CharField(max_length=10, choices=MODE, default="FRIENDLIES")
@@ -201,25 +226,3 @@ class Message(models.Model):
     id = models.BigIntegerField(primary_key=True)
     tier = models.ForeignKey(Tier, on_delete=models.CASCADE)
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE)
-
-class Guild(models.Model):
-    id = models.BigIntegerField(primary_key=True)
-    spam_channel = models.BigIntegerField(null=True, blank=True)
-    flairing_channel = models.BigIntegerField(null=True, blank=True)
-    list_channel = models.BigIntegerField(null=True, blank=True)
-    list_message = models.BigIntegerField(null=True, blank=True)
-    
-    match_timeout = models.IntegerField(default=600,
-        validators=[
-            validators.MinValueValidator(10)
-    ])
-    
-    cancel_time = models.IntegerField(default=90,
-        validators=[
-            validators.MinValueValidator(10)
-    ])
-
-    ggs_time = models.IntegerField(default=300,
-        validators=[
-            validators.MinValueValidator(10)
-    ])

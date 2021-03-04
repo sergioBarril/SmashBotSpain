@@ -32,11 +32,12 @@ class PlayerViewSet(viewsets.ModelViewSet):
         Matches the player. Requires to have created an arena through POST /arenas/.
         """
         player = self.get_object()
+        guild_id = request.data['guild']
 
         min_tier = Tier.objects.get(id=request.data['min_tier'])
         max_tier = Tier.objects.get(id=request.data['max_tier'])
 
-        arenas = player.search(min_tier, max_tier)
+        arenas = player.search(min_tier, max_tier, guild_id)
 
         if arenas: # Join existing arena
             arena = arenas.first()
@@ -44,7 +45,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
             arena.set_status("CONFIRMATION")
             arena.save()
 
-            old_arena = Arena.objects.filter(created_by=player, status="SEARCHING").first()                
+            old_arena = Arena.objects.filter(guild=guild_id, created_by=player, status="SEARCHING").first()                
             old_arena.set_status("WAITING")
 
             return Response({
@@ -294,7 +295,19 @@ class ArenaViewSet(viewsets.ModelViewSet):
         
         return Response({'messages': messages}, status=status.HTTP_200_OK)
     
+    @action(detail=False)
+    def invite_list(self, request):
+        guild = request.data.get('guild_id', None)
+
+
+
+        host = Player.objects.filter(id=host_id).first()
+        host_player = ArenaPlayer.objects.filter(status="PLAYING", player=host)
+
+        arena = host_player.arena
+
     def create(self, request):
+        guild_id = request.data['guild']
         roles = request.data['roles']
         force_tier = request.data.get('force_tier', False)
         
@@ -365,7 +378,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         except Arena.DoesNotExist:
             pass
         
-        arenas = player.search(min_tier, max_tier)
+        arenas = player.search(min_tier, max_tier, guild_id)
 
         if arenas: # Join existing arena
             arena = arenas.first()

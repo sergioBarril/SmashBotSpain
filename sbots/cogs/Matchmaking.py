@@ -41,7 +41,8 @@ class Matchmaking(commands.Cog):
         # Check Force-tier mode:
         is_force_tier = ctx.invoked_with == "friendlies-here"
         
-        body = {            
+        body = {
+            'guild': ctx.guild.id,            
             'created_by' : ctx.author.id,
             'player_name' : ctx.author.nickname(),
             'min_tier' : ctx.channel.id,
@@ -150,7 +151,8 @@ class Matchmaking(commands.Cog):
         arena_channel = ctx.channel        
 
         body = {
-            'channel_id' : arena_channel.id
+            'channel_id' : arena_channel.id,
+            'guild' : ctx.guild.id
         }
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/ggs/', json=body) as response:
@@ -206,7 +208,10 @@ class Matchmaking(commands.Cog):
     async def cancel(self, ctx):
         player = ctx.author
 
-        body = {'player' : player.id}
+        body = {
+            'player' : player.id,
+            'guild' : ctx.guild.id
+        }
         
         async with self.bot.session.post(f'http://127.0.0.1:8000/arenas/cancel/', json=body) as response:
             if response.status == 200:

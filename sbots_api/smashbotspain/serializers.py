@@ -13,6 +13,7 @@ class PlayerSerializer(serializers.ModelSerializer):
         depth = 1
 
 class ArenaSerializer(serializers.ModelSerializer):    
+    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())
     created_by = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())    
     max_tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
     min_tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
@@ -46,7 +47,7 @@ class ArenaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Arena
-        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'created_by', 'max_players', 'players', 'channel_id', 'messages')
+        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'guild', 'created_by', 'max_players', 'players', 'channel_id', 'messages')
 
 class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())
@@ -57,9 +58,10 @@ class ArenaPlayerSerializer(serializers.ModelSerializer):
         fields = ('arena', 'player', 'status')
 
 class TierSerializer(serializers.ModelSerializer):
+    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())
     class Meta:
         model = Tier
-        fields = ('id', 'name', 'weight', 'channel_id')
+        fields = ('id', 'name', 'weight', 'channel_id', 'guild')
 
 class MessageSerializer(serializers.ModelSerializer):    
     class Meta:
