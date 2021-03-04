@@ -22,40 +22,12 @@ from .checks.matchmaking_checks import (in_arena, in_tier_channel)
 class Matchmaking(commands.Cog):
     
     def __init__(self, bot):
-        self.bot = bot
-        self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
-        self.confirmation_list = []
-        self.rejected_list = []
-
-        self.mention_messages = {}
-        self.current_search = {}                
-        
-        self.arena_status = {}
-        self.arena_invites = {}
+        self.bot = bot                
     
     async def setup_matchmaking(self, guild):
-        self.guild = guild        
-        self.arenas =  discord.utils.get(self.guild.categories, name="ARENAS").channels
-        await self.delete_arenas()
-        
-        
-        # # Message that will have the updated search lists
-        # list_channel = self.guild.get_channel(channel_id=LIST_CHANNEL_ID)
-        # list_message = await list_channel.fetch_message(LIST_MESSAGE_ID)                        
-        # self.list_message = list_message
-        
-        self.tier_roles = {}
-        self.tier_channels = {}
-        
-        for tier_name, tier_channel_name in zip(TIER_NAMES, TIER_CHANNEL_NAMES):
-            role = discord.utils.get(self.guild.roles, name = tier_name)
-            channel = discord.utils.get(self.guild.channels, name = tier_channel_name)
-            
-            self.tier_roles[tier_name] = role
-            self.tier_channels[tier_name] = channel
-        
+        self.guild = guild
         self.reset_matchmaking.start()
-        # await self.update_list_message()
+        await self.update_list_message(guild=guild)
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(in_tier_channel)
@@ -354,118 +326,7 @@ class Matchmaking(commands.Cog):
         
         await asyncio.gather(*delete_tasks)
         return True
-
-    #  ************************************
-    #              T I E R S
-    #  ************************************
     
-    def get_tier(self, player):
-        """
-        Given a player, returns the role with their Tier.
-        """
-        if isinstance(player, discord.member.Member):
-            member = player
-        else:            
-            member = self.guild.get_member(player.id)
-        return next((role for role in member.roles[::-1] if role in self.tier_roles.values()), None)
-
-    def tier_range_validation(self, tier_role, limit_tier_num, force_tier = False):
-        """
-        Given a Tier role and a number from 1 to 4,
-        validates the input and returns a range of tiers
-        that the player will join.
-
-        If force_tier is True, the tier range will only be limit_tier_num
-        """
-        if not tier_role:
-            raise TierValidationException("No tienes Tier... Habla con algún admin para que te asigne una.")
-        
-        if limit_tier_num is not None:
-            limit_tier_name = f'Tier {limit_tier_num}'
-            
-            if limit_tier_name not in TIER_NAMES: # Invalid number
-                raise TierValidationException(f"Formato inválido: únete a la cola con `.friendlies X`, con X siendo un número de 1 a 4")
-            
-            # Get role of limit_tier
-            limit_tier_role = self.tier_roles[limit_tier_name]
-            
-            if tier_role < limit_tier_role: # Tu tier es inferior a la de la lista
-                raise TierValidationException(f"Intentas colarte en la lista de la {limit_tier_name}, pero aún eres de {tier_role.name}... ¡A seguir mejorando!")
-        else:
-            limit_tier_num = tier_role.name[-1]
-
-        if force_tier:
-            return range(int(limit_tier_num), int(limit_tier_num) + 1)
-        else:
-            return range(int(tier_role.name[-1]), int(limit_tier_num) + 1)
-
-    # *************************************
-    #       S E A R C H      L I S T
-    # *************************************
-    async def can_join_search(self, player):
-        if player in self.confirmation_list:
-            raise AlreadyMatchedException("¡Ya tienes match! Ve a aceptarlo o espera a que tu rival conteste.")
-
-        for match in self.arena_status.values():
-            if match is not None and player in match:
-                raise AlreadyMatchedException("¡Ya estás jugando con alguien! ¿Te has olvidado de cerrar la arena con `.ggs`?")
-        return True
-
-    def is_match_possible(self, tier_range=range(1, 5)):
-        """
-        Checks whether a match can be found in the given range
-        and if true, returns a set with both players.
-        """
-        for i in tier_range:
-            tier_list = self.search_list[f'Tier {i}']
-            if len(tier_list) < 2:
-                continue
-            match_set_combinations = map(set, itertools.combinations(tier_list, 2))
-            match = next((match_set for match_set in match_set_combinations if match_set not in self.rejected_list), None)
-
-            if match is not None:
-                return list(match)
-        return False
-    
-    async def add_to_search_list(self, player, tier_range):
-        """
-        Adds a player to every search list in the passed range.
-        Returns a list with the tier numbers where the player
-        has been added
-        """        
-        tiers_added = []
-        
-        for i in tier_range:
-            if DEV_MODE or player not in self.search_list[f'Tier {i}']:
-                self.search_list[f'Tier {i}'].append(player)
-                tiers_added.append(i)        
-        if tiers_added:
-            asyncio.create_task(self.update_list_message())
-
-        return tiers_added
-
-    async def remove_from_search_list(self, player, tier_range):
-        """
-        Removes a player from every list in the given tier_range.
-        """
-        tiers_removed = []
-        
-        for i in tier_range:
-            if player in self.search_list[f'Tier {i}']:
-                self.search_list[f'Tier {i}'].remove(player)
-                tiers_removed.append(i)
-        
-        if tiers_removed:
-            asyncio.create_task(self.update_list_message())
-        
-        return tiers_removed
-
-    async def remove_from_rejected_list(self, match_set):
-        await asyncio.sleep(WAIT_AFTER_REJECT)
-        self.rejected_list.remove(match_set)
-        # After the timeout has happened, try matchmaking in case they're still there
-        await self.matchmaking()
-
     # ************************************************
     #          M  A  T  C  H  M  A  K  I  N  G
     # ************************************************
@@ -534,13 +395,6 @@ class Matchmaking(commands.Cog):
         await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
         await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")
         await self.update_list_message(guild=ctx.guild)
-        
-        # await self.update_list_message()
-        
-    #         # Edit messages
-    #         edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
-    #         await asyncio.gather(*[message.edit(content=edited_text) for player in match for message in self.mention_messages.get(player, [])])
-
     
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
@@ -770,16 +624,7 @@ class Matchmaking(commands.Cog):
 
     #  ***********************************************
     #           A   R   E   N   A   S
-    #  ***********************************************    
-    def get_arena(self, arena_name):
-        return next((arena for arena in self.arenas if arena.name == arena_name), None)
-    
-    async def give_arena_permissions(self, player, arena):
-        await arena.set_permissions(player, read_messages=True, send_messages=True)
-
-    async def remove_arena_permissions(self, player, arena):
-        await arena.set_permissions(player, read_messages=False, send_messages=False)
-    
+    #  ***********************************************
     async def make_arena(self):
         """
         Creates a text channel called #arena-X (x is an autoincrementing int).
@@ -797,30 +642,24 @@ class Matchmaking(commands.Cog):
         channel = await arenas_category.create_text_channel(new_arena_name)
         
         return channel
-        # Arena list and status dictionary updated
-        # self.arenas.append(channel)
-        # self.arena_status[new_arena_name] = None
-        # self.arena_invites[new_arena_name] = []
-
-        # return channel
             
-    async def delete_arenas(self):
-        for arena in self.arenas:
-            await self.delete_arena(arena)        
+    # async def delete_arenas(self):
+    #     for arena in self.arenas:
+    #         await self.delete_arena(arena)        
 
-    async def delete_arena(self, arena):
-        if arena not in self.arenas:
-            return
+    # async def delete_arena(self, arena):
+    #     if arena not in self.arenas:
+    #         return
         
-        self.arenas.remove(arena)
-        self.arena_status.pop(arena.name, None)
+        # self.arenas.remove(arena)
+        # self.arena_status.pop(arena.name, None)
 
-        if arena.name in self.arena_invites.keys():            
-            for invite in self.arena_invites[arena.name]:
-                invite.cancel()
-            self.arena_invites.pop(arena.name, None)
+        # if arena.name in self.arena_invites.keys():            
+        #     for invite in self.arena_invites[arena.name]:
+        #         invite.cancel()
+        #     self.arena_invites.pop(arena.name, None)
         
-        await arena.delete()
+        # await arena.delete()
   
     # *******************************
     #           L I S T
@@ -863,51 +702,51 @@ class Matchmaking(commands.Cog):
                 print("Error")
                 return False        
     
-    async def invite_mention_list(self, ctx, tier_range):
-        response = (f"**__Lista de menciones:__**\n"
-            f"_¡Simplemente reacciona con el emoji del jugador a invitar (solo uno)!_\n")
+    # async def invite_mention_list(self, ctx, tier_range):
+    #     response = (f"**__Lista de menciones:__**\n"
+    #         f"_¡Simplemente reacciona con el emoji del jugador a invitar (solo uno)!_\n")
         
-        arena = ctx.channel
+    #     arena = ctx.channel
 
-        # Get unique players
-        players = []
+    #     # Get unique players
+    #     players = []
        
-        for tier_num in tier_range:
-            tier_name = f'Tier {tier_num}'
+    #     for tier_num in tier_range:
+    #         tier_name = f'Tier {tier_num}'
                         
-            for player in self.search_list[tier_name]:
-                if player not in players:        
-                    players.append(player)
+    #         for player in self.search_list[tier_name]:
+    #             if player not in players:        
+    #                 players.append(player)
 
-        # There are only 10 emojis with numbers. For now that'll be more than enough.
-        players = players[:10]
+    #     # There are only 10 emojis with numbers. For now that'll be more than enough.
+    #     players = players[:10]
 
-        if not players:
-            return await ctx.send("No hay nadie buscando partida.")
+    #     if not players:
+    #         return await ctx.send("No hay nadie buscando partida.")
 
-        for i, player in enumerate(players, start=1):
-            response += f"{i}. {player.nickname()} ({self.get_tier(player).name})\n"
+    #     for i, player in enumerate(players, start=1):
+    #         response += f"{i}. {player.nickname()} ({self.get_tier(player).name})\n"
         
-        message = await arena.send(response)
+    #     message = await arena.send(response)
         
-        message_reactions = [message.add_reaction(emoji) for emoji in NUMBER_EMOJIS[ : len(players)]]
-        await asyncio.gather(*message_reactions)
+    #     message_reactions = [message.add_reaction(emoji) for emoji in NUMBER_EMOJIS[ : len(players)]]
+    #     await asyncio.gather(*message_reactions)
 
-        def check_message(reaction, user):
-            is_same_message = (reaction.message == message)
-            is_valid_emoji = (reaction.emoji in (NUMBER_EMOJIS))
-            is_author = (user == ctx.author)
+    #     def check_message(reaction, user):
+    #         is_same_message = (reaction.message == message)
+    #         is_valid_emoji = (reaction.emoji in (NUMBER_EMOJIS))
+    #         is_author = (user == ctx.author)
 
-            return is_same_message and is_valid_emoji and is_author
+    #         return is_same_message and is_valid_emoji and is_author
 
-        emoji, player = await self.bot.wait_for('reaction_add', check=check_message)
+    #     emoji, player = await self.bot.wait_for('reaction_add', check=check_message)
 
-        player_index = NUMBER_EMOJIS.index(str(emoji))
+    #     player_index = NUMBER_EMOJIS.index(str(emoji))
 
-        invited_player = players[player_index]
+    #     invited_player = players[player_index]
 
-        invite_task = asyncio.create_task(self.invite(ctx, invited_player))        
-        return await invite_task
+    #     invite_task = asyncio.create_task(self.invite(ctx, invited_player))        
+    #     return await invite_task
     
     @commands.command()
     @commands.has_any_role("Dev","admin")
@@ -928,15 +767,16 @@ class Matchmaking(commands.Cog):
     # *******************************
     @tasks.loop(hours=24)
     async def reset_matchmaking(self):
-        await self.delete_arenas()
+        pass
+        # await self.delete_arenas()        
         
-        self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
-        self.confirmation_list = []
-        self.rejected_list = []
+        # self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
+        # self.confirmation_list = []
+        # self.rejected_list = []
                 
-        await self.update_list_message()
+        # await self.update_list_message()
         
-        print("Clean up complete")
+        # print("Clean up complete")
     
     @reset_matchmaking.before_loop
     async def before_reset_matchmaking(self):
