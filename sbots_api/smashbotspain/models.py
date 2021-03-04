@@ -209,10 +209,16 @@ class Guild(models.Model):
     list_channel = models.BigIntegerField(null=True, blank=True)
     list_message = models.BigIntegerField(null=True, blank=True)
     
-    friendlies_timeout = models.IntegerField(default=600,
+    match_timeout = models.IntegerField(default=600,
         validators=[
             validators.MinValueValidator(10)
-        ])
+    ])
+    
+    cancel_time = models.IntegerField(default=90,
+        validators=[
+            validators.MinValueValidator(10)
+    ])
+
     ggs_time = models.IntegerField(default=300,
         validators=[
             validators.MinValueValidator(10)

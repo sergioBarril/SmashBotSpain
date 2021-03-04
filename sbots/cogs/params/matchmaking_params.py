@@ -14,6 +14,7 @@ DEV_MODE = False  # IF SET TO TRUE, A PLAYER CAN ALWAYS JOIN THE LIST
 
 EMOJI_CONFIRM = '\u2705' #✅
 EMOJI_REJECT = '\u274C' #❌
+EMOJI_HOURGLASS = '\U000023f3'
 
 NUMBER_EMOJIS = (
     *[f'{i}\N{variation selector-16}\N{combining enclosing keycap}' for i in range(1, 10)],

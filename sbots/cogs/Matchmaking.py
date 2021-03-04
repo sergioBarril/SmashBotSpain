@@ -13,7 +13,7 @@ from .Exceptions import (RejectedException, ConfirmationTimeOutException,
                         TierValidationException, AlreadyMatchedException)
 
 from .params.matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CONFIRM, EMOJI_REJECT, 
-                    NUMBER_EMOJIS, LIST_CHANNEL_ID, LIST_MESSAGE_ID,
+                    EMOJI_HOURGLASS, NUMBER_EMOJIS, LIST_CHANNEL_ID, LIST_MESSAGE_ID,
                     WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE,
                     FRIENDLIES_TIMEOUT)
 
@@ -481,10 +481,15 @@ class Matchmaking(commands.Cog):
                 arena_id = match_confirmation['arena_id']
                 return await self.set_arena(ctx, player1, player2, arena_id)
             else:
-                # REJECTED MATCH, SEARCH AGAIN
-                player_id = match_confirmation['searching_player']
-                body = {'min_tier' : match_confirmation['min_tier'], 'max_tier' : match_confirmation['max_tier']}
+                # REJECTED MATCH                
+                player_id = match_confirmation.get('searching_player', None)
 
+                if player_id is None:
+                    return await self.update_list_message(guild=ctx.guild)
+                                
+                body = {'min_tier' : match_confirmation['min_tier'], 'max_tier' : match_confirmation['max_tier']}
+                
+                # SEARCH AGAIN
                 async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player_id}/matchmaking/', json=body) as response:
                     if response.status == 200:
                         html = await response.text()
@@ -565,7 +570,21 @@ class Matchmaking(commands.Cog):
 
         # Tasks
         reaction_tasks = []
-                    
+
+        # Get TIMEOUT_TIMES
+        guild = ctx.guild
+        async with self.bot.session.get(f'http://127.0.0.1:8000/guilds/{guild.id}/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                MATCH_TIMEOUT = resp_body['match_timeout']
+                CANCEL_TIMEOUT = resp_body['cancel_time']
+            
+            else:
+                MATCH_TIMEOUT = 900
+                CANCEL_TIMEOUT = 90
+
         @asyncio.coroutine
         async def reactions(message):
             def check_message(reaction, user):
@@ -579,14 +598,17 @@ class Matchmaking(commands.Cog):
                 for task in reaction_tasks:
                     if task.get_name() != current_task_name:
                         task.cancel()
+            
+            cancel_message = None
             # React
             await asyncio.gather(message.add_reaction(EMOJI_CONFIRM), message.add_reaction(EMOJI_REJECT))
             await asyncio.sleep(0.5)
 
+            start_time = time.time()
             try:
                 # Wait for user reaction
                 try:
-                    emoji, player = await self.bot.wait_for('reaction_add', timeout=FRIENDLIES_TIMEOUT, check=check_message)
+                    emoji, player = await self.bot.wait_for('reaction_add', timeout=MATCH_TIMEOUT + 5, check=check_message)
                     is_timeout = False
                 except asyncio.TimeoutError:                
                     emoji = None
@@ -597,7 +619,7 @@ class Matchmaking(commands.Cog):
                     await asyncio.gather(*remove_reactions)
 
                 # API Call
-                body = { 'accepted' : str(emoji) == EMOJI_CONFIRM, 'timeout' : is_timeout}
+                body = { 'accepted' : str(emoji) == EMOJI_CONFIRM, 'timeout' : is_timeout, 'guild': ctx.guild.id}
 
                 async with self.bot.session.patch(f'http://127.0.0.1:8000/players/{player.id}/confirmation/', json=body) as response:                    
                     if response.status == 200:
@@ -609,7 +631,16 @@ class Matchmaking(commands.Cog):
 
                         #  ACCEPTED, WAITING...
                         if player_accepted and not all_accepted:
-                            cancel_message = await player.send("No contesta... puedes esperar un rato más, o cancelar el match.")
+                            await player.send("¡Aceptado! Ahora a esperar a tu rival...")
+                            await self.update_list_message(guild=ctx.guild)
+                            
+                            await asyncio.sleep(CANCEL_TIMEOUT - (time.time() - start_time))
+
+                            time_elapsed = time.time() - start_time
+                            time_left = MATCH_TIMEOUT - time_elapsed
+                            time_text = time.strftime("%M minutos y %S segundos", time.gmtime(time_left))
+
+                            cancel_message = await player.send(f"Tu rival no contesta... puedes esperar {time_text} más, o cancelar el match.")
                             
                             def check_cancel_message(reaction, user):
                                 is_same_message = (reaction.message == cancel_message)
@@ -618,12 +649,14 @@ class Matchmaking(commands.Cog):
                                 return is_same_message and is_valid_emoji
                             
                             await cancel_message.add_reaction(EMOJI_REJECT)
-                            await asyncio.sleep(0.5)
+                            await asyncio.sleep(0.5)                            
                             
-                            emoji, player = await self.bot.wait_for('reaction_add', check=check_cancel_message)
+                            try:
+                                emoji, player = await self.bot.wait_for('reaction_add', timeout=time_left, check=check_cancel_message)
+                            except asyncio.TimeoutError:
+                                pass
                             await cancel_message.remove_reaction(EMOJI_REJECT, self.bot.user)
-                            
-                            await cancel_message.remove_reaction(EMOJI_REJECT, self.bot.user)
+                                                        
                             missing_player_id = resp_body['waiting_for']
                             cancel_other_tasks()
                             body = {'accepted' : False, 'timeout': True}
@@ -638,6 +671,8 @@ class Matchmaking(commands.Cog):
                     else:
                         return None
             except asyncio.CancelledError:
+                if cancel_message is not None:
+                    await cancel_message.delete()
                 return None
         reaction_tasks.append(asyncio.create_task(reactions(confirm_message1), name=f"reactions_{confirm_message1.id}"))
         reaction_tasks.append(asyncio.create_task(reactions(confirm_message2), name=f"reactions_{confirm_message2.id}"))
@@ -655,9 +690,13 @@ class Matchmaking(commands.Cog):
         player_accepted = confirmation_data.get('player_accepted')
         all_accepted = confirmation_data.get('all_accepted')
         is_timeout = confirmation_data.get('timeout', False)
+        both_rejected = confirmation_data.get('arena_id', False) is None
         
         if not player_accepted:
-            if is_timeout:
+            if is_timeout and both_rejected:
+                passive_message = f"Ni tú ni {active_player.nickname()} estáis... El match ha sido cancelado, y os he quitado a ambos de las listas -- podéis volver a apuntaros si queréis."            
+                active_message = f"Ni tú ni {passive_player.nickname()} estáis... El match ha sido cancelado, y os he quitado a ambos de las listas -- podéis volver a apuntaros si queréis."
+            elif is_timeout:                
                 passive_message = f"¿Hola? Parece que no estás... El match ha sido cancelado, y te he quitado de las listas -- puedes volver a apuntarte si quieres."
                 active_message = f"Parece que {passive_player.nickname()} no está... Te he vuelto a meter en las listas de búsqueda."
             else:
@@ -804,9 +843,11 @@ class Matchmaking(commands.Cog):
                     new_message += "\n**CONFIRMANDO:**\n"
 
                 for arena in resp_body['confirmation']:
-                    player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier']} for player in arena]
-                    new_message += f"**{player1['name']}** ({player1['tier']}) vs. **{player2['name']}** ({player2['tier']})\n"
-                
+                    player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier'], 'status' : player['status']} for player in arena]
+                    new_message += (
+                        f"**[{EMOJI_CONFIRM if player1['status'] == 'ACCEPTED' else EMOJI_HOURGLASS}]  {player1['name']}** ({player1['tier']})"
+                        f" vs. **{player2['name']} ({player2['tier']}) [{EMOJI_CONFIRM if player2['status'] == 'ACCEPTED' else EMOJI_HOURGLASS}]**\n"
+                    )
                 if resp_body['playing']:
                     new_message += "\n**ARENAS:**\n"
                 

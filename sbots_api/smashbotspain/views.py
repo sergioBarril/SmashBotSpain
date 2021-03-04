@@ -73,7 +73,9 @@ class PlayerViewSet(viewsets.ModelViewSet):
         
         # Rejected
         if not accepted:
-            searching_arena = None            
+            searching_arena = None
+            other_accepted = other_player.status() == "ACCEPTED"
+            
             if player == arena.created_by:
                 other_arena = Arena.objects.filter(created_by=other_player).first()
                 other_arena.set_status("SEARCHING")
@@ -85,24 +87,32 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 arena.set_status("SEARCHING")
                 searching_arena = arena                
                 other_arena.delete()            
-            
-            if not is_timeout:
+                        
+            if is_timeout and not other_accepted:
+                searching_arena.delete()
+                searching_arena = None
+            elif not is_timeout:
                 searching_arena.rejected_players.add(player)
                 searching_arena.save()
-                pass
-            
-            tiers = searching_arena.get_tiers()
 
             response_body = {
                 'player_accepted': False,
                 'timeout': is_timeout,
                 'player_id' : player.id,
-                'arena_id' : searching_arena.id,
-                'searching_player': searching_arena.created_by.id,
-                'min_tier': searching_arena.min_tier.id,
-                'max_tier': searching_arena.max_tier.id,
-                'tiers': [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
-            }
+            }             
+
+            if searching_arena is None:
+                response_body['arena_id'] = None
+            else:
+                tiers = searching_arena.get_tiers()
+                
+                response_body.update({
+                    'arena_id' : searching_arena.id,
+                    'searching_player': searching_arena.created_by.id,
+                    'min_tier': searching_arena.min_tier.id,
+                    'max_tier': searching_arena.max_tier.id,
+                    'tiers': [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
+                })            
             return Response(response_body, status=status.HTTP_200_OK)
         
         serializer = ArenaPlayerSerializer(arena_player, data={'status' : 'ACCEPTED'}, partial=True)
