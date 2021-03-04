@@ -1,4 +1,6 @@
-from ..params.matchmaking_params import TIER_CHANNEL_NAMES
+import aiohttp
+import discord
+import json
 
 # ***********************
 # ***********************
@@ -6,14 +8,22 @@ from ..params.matchmaking_params import TIER_CHANNEL_NAMES
 # ***********************
 # ***********************
 
-def in_their_arena(ctx):
-    player = ctx.author
+def in_arena(ctx):
     arena = ctx.channel
-    
-    if arena not in ctx.bot.get_cog("Matchmaking").arenas:
-        return False
-    
-    return player in ctx.bot.get_cog("Matchmaking").arena_status[arena.name]
+    arenas_category = discord.utils.get(ctx.guild.categories, name="ARENAS")
 
-def in_tier_channel(ctx):
-    return ctx.message.guild is not None and ctx.channel.name in TIER_CHANNEL_NAMES
+    return arena in arenas_category.channels
+
+async def in_tier_channel(ctx):
+    channel = ctx.channel
+    guild = ctx.guild
+
+    async with ctx.bot.session.get(f'http://127.0.0.1:8000/tiers/') as response:
+        if response.status == 200:
+            html = await response.text()
+            resp_body = json.loads(html)
+
+            channel_ids = [tier['channel_id'] for tier in resp_body]            
+            return channel.id in channel_ids
+        else:
+            return False

@@ -5,7 +5,7 @@ from discord.ext import tasks, commands
 
 from .params.flairing_params import (REGIONS)
 
-from .checks.matchmaking_checks import (in_their_arena, in_tier_channel)
+from .checks.matchmaking_checks import (in_arena, in_tier_channel)
 from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
 
 class HelpCommands(commands.Cog):
