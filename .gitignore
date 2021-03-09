@@ -3,6 +3,7 @@ sbots-env/
 sbots_api-env/
 
 legacy/
+keys/
 doc/
 
 *.env

@@ -5,6 +5,7 @@ import time
 import re
 import itertools
 import typing
+from collections import defaultdict
 from datetime import datetime, timedelta
 import json
 
@@ -22,11 +23,12 @@ from .checks.matchmaking_checks import (in_arena, in_tier_channel)
 class Matchmaking(commands.Cog):
     
     def __init__(self, bot):
-        self.bot = bot                
+        self.bot = bot
+        self.arena_invites = defaultdict(list)
     
     async def setup_matchmaking(self, guild):
         self.guild = guild
-        self.reset_matchmaking.start()
+        self.reset_matchmaking.start()        
         await self.update_list_message(guild=guild)
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
@@ -148,11 +150,14 @@ class Matchmaking(commands.Cog):
     @commands.command()
     @commands.check(in_arena)
     async def ggs(self, ctx):
-        arena_channel = ctx.channel        
+        arena_channel = ctx.channel
+        guild = ctx.guild
+        author = ctx.author
 
         body = {
             'channel_id' : arena_channel.id,
-            'guild' : ctx.guild.id
+            'guild' : guild.id,
+            'author' : author.id
         }
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/ggs/', json=body) as response:
@@ -160,43 +165,51 @@ class Matchmaking(commands.Cog):
                 html = await response.text()
                 resp_body = json.loads(html)
 
+                is_closed = resp_body.get('closed', True)
                 messages = resp_body.get('messages', [])
                 player_ids = resp_body.get('players', [])
-
-                players = [ctx.guild.get_member(player_id) for player_id in player_ids]
-                player1, player2 = players
-
-                text = f"**{player1.nickname()}** y **{player2.nickname()}** ya han terminado de jugar."
-                await self.edit_messages(ctx, messages, text)
+                ggs_ids = resp_body.get('ggs_players', [])
                 
-                await ctx.send("GGs. ¡Gracias por jugar!")                
+                players = [ctx.guild.get_member(player_id) for player_id in player_ids]
+                ggs_players = [ctx.guild.get_member(player_id) for player_id in ggs_ids]
+                
+                if is_closed:                    
+                    player1, player2 = players                    
+                    text = f"**{player1.nickname()}** y **{player2.nickname()}** ya han terminado de jugar."
+                else:
+                    # Playing names
+                    if players:
+                        player_names = [player.nickname() for player in players]
+                        names_text = ", ".join(player_names[:-1])
+                        if len(players) > 1:
+                            names_text += "** y **"
+                        names_text += player_names[-1]
+                        text = f"¡**{names_text}** siguen jugando!"
+                    
+                    # GGs names
+                    if ggs_players:
+                        ggs_names = [player.nickname() for player in ggs_players]
+                        ggs_text = ", ".join(ggs_names[:-1])
+                        
+                        extra_n = ''
+                        if len(ggs_players) > 1:
+                            ggs_text += "** y **"
+                            extra_n = 'n'
+                        ggs_text += ggs_names[-1]
+                    
+                        text += f" **{ggs_text}** ya ha{extra_n} dejado de jugar."
+                
+                await self.edit_messages(ctx, messages, text)
+                await ctx.send("GGs. ¡Gracias por jugar!")
                 await self.update_list_message(guild=ctx.guild)
                 
                 # Delete arena
-                await asyncio.sleep(GGS_ARENA_COUNTDOWN)
-                await arena_channel.delete()
+                if is_closed:                
+                    await asyncio.sleep(GGS_ARENA_COUNTDOWN)
+                    await arena_channel.delete()
             else:
                 await ctx.send("GGs. ¡Gracias por jugar!")
-        
-        
-        
-        # if len(arena_players) > 2:
-        #     await ctx.send(f"GGs, **{ctx.author.nickname()}** lo deja por hoy.")
-        #     await self.remove_arena_permissions(player, arena)
-
-        #     # Edit leaver message
-        #     edited_text = f"**{player.nickname()}** ya ha terminado de jugar."
-        #     await asyncio.gather(*[message.edit(content=edited_text) for message in self.mention_messages.get(player, [])])
-        #     self.mention_messages.pop(player, None)
-        #     arena_players.remove(player)
-
-        #     # Edit other messages
-        #     player1, player2 = arena_players
-        #     edited_text = f"**¡{player1.nickname()}** y **{player2.nickname()}** están jugando!"
-        #     await asyncio.gather(*[message.edit(content=edited_text) for member in arena_players for message in self.mention_messages.get(member, [])])
-        
-        # return await self.update_list_message()
-
+    
     @ggs.error
     async def ggs_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
@@ -241,38 +254,31 @@ class Matchmaking(commands.Cog):
     
     @commands.command()
     @commands.check(in_arena)
-    async def invite(self, ctx, guest : typing.Optional[discord.Member]):
+    async def invite(self, ctx):
         host = ctx.author
         arena = ctx.channel
 
-        if len(self.arena_status[arena.name]) > 2:
-            return await ctx.send("Ya sois 3 en la arena (aún no están implementadas las arenas de más de 3 personas).")
-
-        host_tier = self.get_tier(host)
+        # if len(self.arena_status[arena.name]) > 2:
+        #     return await ctx.send("Ya sois 3 en la arena (aún no están implementadas las arenas de más de 3 personas).")                
         
-        if guest is None:
-            # Show mentions list
-            tier_range = self.tier_range_validation(host_tier, 4)
-            return await self.invite_mention_list(ctx, tier_range)
+        # Show mentions list        
+        players = await self.invite_mention_list(ctx)        
         
+        guest = players['guest']
+        hosts = players['hosts']
         
-        # Get min tier list where the guest is searching
-        searched_tiers = [i for i in range(1, 5) if guest in self.search_list[f'Tier {i}']]
-
-        if not searched_tiers:
-            return await ctx.send(f"**{guest.nickname()}** no está buscando partidas ahora mismo... decidle que haga `.friendlies` primero.")
-        
-        min_search_tier = searched_tiers[-1]
-
-        try:
-            tier_range = self.tier_range_validation(host_tier, min_search_tier)
-        except TierValidationException as e:
-            return await ctx.send(f"No parece que **{guest.nickname()}** esté buscando partida de tu tier o inferior.")
-
-        host1, host2 = self.arena_status[arena.name]
+        # Add as invited
+        body = {'channel' : arena.id }
+        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{guest.id}/invite/', json=body) as response:
+            if response.status == 200:
+                # html = await response.text()
+                # resp_body = json.loads(html)
+                pass
+            else:
+                return await ctx.send(f"No se pudo invitar a {guest.nickname()}")
         
         # Ask for guest's consent
-        await self.confirm_invite(host1, host2, guest, arena)
+        await self.confirm_invite(ctx, guest, hosts)
 
 
     @invite.error
@@ -566,20 +572,34 @@ class Matchmaking(commands.Cog):
         
         return confirmation_data
 
-    async def confirm_invite(self, host1, host2, player, arena):
-        message = await player.send(f"**{host1.nickname()}** y **{host2.nickname()}** te invitan a jugar con ellos en su arena. ¿Aceptas?")
+    async def confirm_invite(self, ctx, guest, hosts):
+        arena = ctx.channel        
+        
+        # Get hosts name string:
+        host_names = [host.nickname() for host in hosts]
+        
+        names_text = ", ".join(host_names[:-1])        
+        
+        if len(hosts) > 1:
+            names_text += "** y **"
+        
+        names_text += host_names[-1]
+        
+        message = await guest.send(f"**{names_text}** te invitan a jugar con ellos en su arena. ¿Aceptas?")
 
         # React
         await asyncio.gather(message.add_reaction(EMOJI_CONFIRM), message.add_reaction(EMOJI_REJECT))
         await asyncio.sleep(0.5)
         
         # Wait for user reaction
-        invite_task = asyncio.create_task(self.wait_invite_reaction(message, host1, host2, player, arena), name=f"{host1}{host2}{player}{arena}")
-        self.arena_invites[arena.name].append(invite_task)
+        invite_task = asyncio.create_task(self.wait_invite_reaction(ctx, message, guest, hosts), name=f"{guest.id}{arena.id}")
+        self.arena_invites[guest.id].append(invite_task)
         await invite_task
 
     @asyncio.coroutine
-    async def wait_invite_reaction(self, message, host1, host2, player, arena):
+    async def wait_invite_reaction(self, ctx, message, guest, hosts):
+        arena = ctx.channel
+
         def check_message(reaction, user):
             is_same_message = (reaction.message == message)
             is_valid_emoji = (reaction.emoji in (EMOJI_CONFIRM, EMOJI_REJECT))
@@ -592,39 +612,48 @@ class Matchmaking(commands.Cog):
             remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
             await asyncio.gather(*remove_reactions)
             
-            if str(emoji) == EMOJI_REJECT:
-                await player.send(f"Vale, sin problema.")
-                await arena.send(f"**{player.nickname()}** ha rechazado la invitación a la arena.")
-            else:
-                has_removed = await self.remove_from_search_list(player, range(1, 5))
-                self.arena_status[arena.name].append(player)
-                await self.give_arena_permissions(player, arena)
-                await self.update_list_message()
+            is_accepted = str(emoji) == EMOJI_CONFIRM
+
+            body = {
+                'invited': True,
+                'accepted': is_accepted,
+                'channel': arena.id,                
+            }
+            
+            async with self.bot.session.patch(f'http://127.0.0.1:8000/players/{guest.id}/confirmation/', json=body) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)
+
+                    messages = resp_body.get('messages', [])
+                else:
+                    print("Error with invite confirmation")
+            
+            if is_accepted:
+                await arena.set_permissions(guest, read_messages=True, send_messages=True)
+                await self.update_list_message(guild=ctx.guild)               
                 
-                # Delete invites before going to arena
-                if arena.name in self.arena_invites.keys():
-                    for invite in self.arena_invites[arena.name]:
-                        invite_name = invite.get_name()
-                        current_task_name = asyncio.current_task().get_name()
-                        
-                        if invite_name != current_task_name:
-                            invite.cancel()
-                    self.arena_invites[arena.name] = []
-                                
-                # Edit messages
-                edited_text = f"**{player.nickname(guild=self.guild)}** está jugando con **{host1.nickname()}** y **{host2.nickname()}**."
-                await asyncio.gather(*[message.edit(content=edited_text) for message in self.mention_messages.get(player, [])])                
+                # Build message text
+                host_names = [host.nickname() for host in hosts]
+                
+                names_text = ", ".join(host_names[:-1])        
+                
+                if len(hosts) > 1:
+                    names_text += "** y **"
+                
+                names_text += host_names[-1]
+                
+                edited_text = f"**{names_text}** están jugando."
 
-                # Remove current_search
-                self.current_search.pop(player, None)
+                await self.edit_messages(ctx, messages, edited_text)            
 
-                await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
-                await player.send(f"Perfecto {player.mention}, ¡dirígete a {arena.mention} y saluda a tus anfitriones!")
+            await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
+            await guest.send(f"Perfecto {guest.mention}, ¡dirígete a {arena.mention} y saluda a tus anfitriones!")
 
         except asyncio.CancelledError as e:
             remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
             await asyncio.gather(*remove_reactions)
-            await player.send("Ya han dejado de jugar o se ha llenado el hueco, rip. ¡Intenta estar más atento la próxima vez!")
+            await guest.send("Parce que ya han dejado de jugar, rip. ¡Intenta estar más atento la próxima vez!")
             return
 
     #  ***********************************************
@@ -695,9 +724,10 @@ class Matchmaking(commands.Cog):
                 if resp_body['playing']:
                     new_message += "\n**ARENAS:**\n"
                 
-                for arena in resp_body['playing']:
-                    player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier']} for player in arena]
-                    new_message += f"**{player1['name']}** ({player1['tier']}) vs. **{player2['name']}** ({player2['tier']})\n"
+                for arena in resp_body['playing']:                    
+                    players = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier']} for player in arena]
+                    players_text = [f"**{player['name']}** ({player['tier']})" for player in players]
+                    new_message += f"{' vs. '.join(players_text)}\n"
 
                 list_channel = self.guild.get_channel(resp_body['list_channel'])
                 list_message = await list_channel.fetch_message(resp_body['list_message'])
@@ -707,51 +737,59 @@ class Matchmaking(commands.Cog):
                 print("Error")
                 return False        
     
-    # async def invite_mention_list(self, ctx, tier_range):
-    #     response = (f"**__Lista de menciones:__**\n"
-    #         f"_¡Simplemente reacciona con el emoji del jugador a invitar (solo uno)!_\n")
+    async def invite_mention_list(self, ctx):
+        message_text = (f"**__Lista de menciones:__**\n"
+            f"_¡Simplemente reacciona con el emoji del jugador a invitar (solo uno)!_\n")
         
-    #     arena = ctx.channel
+        arena = ctx.channel
 
-    #     # Get unique players
-    #     players = []
-       
-    #     for tier_num in tier_range:
-    #         tier_name = f'Tier {tier_num}'
-                        
-    #         for player in self.search_list[tier_name]:
-    #             if player not in players:        
-    #                 players.append(player)
+        body = {'channel': arena.id}
 
-    #     # There are only 10 emojis with numbers. For now that'll be more than enough.
-    #     players = players[:10]
+        # Get unique players
+        async with self.bot.session.get('http://127.0.0.1:8000/arenas/invite_list/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+                
+                players = resp_body['players']
+                hosts = resp_body['hosts']
+            else:
+                return await ctx.send("Error, no se puede mostrar la lista. ¿Quizá cerrasteis la arena?")
 
-    #     if not players:
-    #         return await ctx.send("No hay nadie buscando partida.")
+        # There are only 10 emojis with numbers. For now that'll be more than enough.
+        players = players[:10]
 
-    #     for i, player in enumerate(players, start=1):
-    #         response += f"{i}. {player.nickname()} ({self.get_tier(player).name})\n"
+        if not players:
+            return await ctx.send("No hay nadie buscando partida.")
+                
+        # Get player name        
+        for player in players:
+            player['name'] = ctx.guild.get_member(player['id']).nickname()
+
+        # Message building
+        for i, player in enumerate(players, start=1):
+            message_text += f"{i}. {player['name']} ({player['tier']})\n"        
         
-    #     message = await arena.send(response)
+        message = await arena.send(message_text)
         
-    #     message_reactions = [message.add_reaction(emoji) for emoji in NUMBER_EMOJIS[ : len(players)]]
-    #     await asyncio.gather(*message_reactions)
+        message_reactions = [message.add_reaction(emoji) for emoji in NUMBER_EMOJIS[ : len(players)]]
+        await asyncio.gather(*message_reactions)
 
-    #     def check_message(reaction, user):
-    #         is_same_message = (reaction.message == message)
-    #         is_valid_emoji = (reaction.emoji in (NUMBER_EMOJIS))
-    #         is_author = (user == ctx.author)
+        def check_message(reaction, user):
+            is_same_message = (reaction.message == message)
+            is_valid_emoji = (reaction.emoji in (NUMBER_EMOJIS))
+            is_author = (user == ctx.author)
 
-    #         return is_same_message and is_valid_emoji and is_author
+            return is_same_message and is_valid_emoji and is_author
 
-    #     emoji, player = await self.bot.wait_for('reaction_add', check=check_message)
+        emoji, player = await self.bot.wait_for('reaction_add', check=check_message)
 
-    #     player_index = NUMBER_EMOJIS.index(str(emoji))
+        player_index = NUMBER_EMOJIS.index(str(emoji))
 
-    #     invited_player = players[player_index]
-
-    #     invite_task = asyncio.create_task(self.invite(ctx, invited_player))        
-    #     return await invite_task
+        guest = ctx.guild.get_member(players[player_index]['id'])
+        hosts = [ctx.guild.get_member(host) for host in hosts]    
+        
+        return {'guest': guest, 'hosts': hosts}
     
     @commands.command()
     @commands.has_any_role("Dev","admin")

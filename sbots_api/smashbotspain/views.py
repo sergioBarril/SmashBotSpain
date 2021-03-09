@@ -57,20 +57,51 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Response({'no_match', True}, status=status.HTTP_404_NOT_FOUND)    
     
     @action(detail=True, methods=['patch'])
-    def confirmation(self, request, pk):        
+    def confirmation(self, request, pk):
         player = self.get_object()
+        accepted = request.data['accepted']
+        is_timeout = request.data.get('timeout', False)
+
+        
+        is_invited = request.data.get('invited', False)
+        if is_invited:
+            channel = request.data.get('channel')
+            arena = Arena.objects.filter(channel_id=channel).first()
+            arena_player = ArenaPlayer.objects.filter(status="INVITED", player=player, arena=arena).first()
+            
+            if arena_player is None:
+                return Response(status=status.HTTP_404_NOT_FOUND)
+            
+            if accepted:
+                arena_player.status = "PLAYING"
+                arena_player.save()
+
+                guest_arena = Arena.objects.filter(created_by=player).first()
+                messages = guest_arena.message_set.all()
+                
+                for message in messages:
+                    message.arena = arena
+                    message.save()
+                
+                guest_arena.delete()
+
+                response = {
+                    'messages' : [{'id': message.id, 'channel': message.tier.channel_id} for message in arena.message_set.all()]
+                }
+            else:
+                response = {}
+                arena_player.delete()
+            return Response(response, status=status.HTTP_200_OK)
+        
         arena_player = ArenaPlayer.objects.filter(status__in=["CONFIRMATION", "ACCEPTED"], player=player).first()
         
         if arena_player is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)        
+            return Response(status=status.HTTP_404_NOT_FOUND)
         
         arena = arena_player.arena
 
         players = arena.players.all()
-        other_player = arena.players.exclude(id=player.id).get()
-
-        accepted = request.data['accepted']
-        is_timeout = request.data.get('timeout', False)
+        other_player = arena.players.exclude(id=player.id).get()        
         
         # Rejected
         if not accepted:
@@ -149,6 +180,20 @@ class PlayerViewSet(viewsets.ModelViewSet):
             response['waiting_for'] = unconfirmed_players.first().player.id
 
         return Response(response, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def invite(self, request, pk):
+        player = self.get_object()
+
+        channel = request.data['channel']
+        arena = Arena.objects.filter(channel_id=channel).first()
+
+        if arena is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        arena.add_player(player, status="INVITED")
+        return Response(status=status.HTTP_200_OK)
+
+
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -247,28 +292,50 @@ class ArenaViewSet(viewsets.ModelViewSet):
     def ggs(self, request):                
         channel_id = request.data['channel_id']
         arena = Arena.objects.filter(channel_id=channel_id).first()
+        author = request.data['author']
 
-        if not arena or arena.status != "PLAYING":
+        # Check author in arena
+        if arena:
+            is_in_arena = arena.arenaplayer_set.filter(status="PLAYING", player__id=author).exists()
+
+        if not arena or arena.status != "PLAYING" or not is_in_arena:
             return Response({'not_playing': "NOT_PLAYING"}, status=status.HTTP_400_BAD_REQUEST)
-
-        arena.set_status("CLOSED")
-        
-        # Remove channel_id
-        arena.channel_id = None
-        arena.save()
 
         # Get players
         players = []
-        for player in arena.players.all():
-            players.append(player.id)
+        for arena_player in arena.arenaplayer_set.filter(status="PLAYING").all():
+            players.append(arena_player.player.id)
 
-        # Remove messages
+        is_closed = len(players) <= 2
+        
+        if not is_closed:            
+            players.remove(author)            
+            
+            arena_player = arena.arenaplayer_set.filter(player__id=author, status="PLAYING").first()
+            if arena_player is None:
+                return Response({'not_playing': "NOT_PLAYING"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            arena_player.status = "GGS"
+            arena_player.save()
+        else:
+            arena.set_status("CLOSED")
+        
+            # Remove channel_id
+            arena.channel_id = None
+            arena.save()
+
+        # Get GGs players
+        ggs_players = []
+        for arena_player in arena.arenaplayer_set.filter(status="GGS").all():
+            ggs_players.append(arena_player.player.id)
+
+        # Get messages
         messages = []
         for message in arena.message_set.all():
             messages.append({'id': message.id, 'channel': message.tier.channel_id})
-            message.delete()
-        
-        return Response({'messages' : messages, 'players' : players}, status=status.HTTP_200_OK)        
+            if is_closed:
+                message.delete()
+        return Response({'closed': is_closed, 'messages': messages, 'players': players, 'ggs_players': ggs_players}, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['post'])
     def cancel(self, request):
@@ -297,14 +364,31 @@ class ArenaViewSet(viewsets.ModelViewSet):
     
     @action(detail=False)
     def invite_list(self, request):
-        guild = request.data.get('guild_id', None)
+        # Get arena
+        channel = request.data.get('channel', None)
+        if channel is None:
+            return Response(status=status.HTTP_400_BAD_REQUEST)        
+        
+        arena = Arena.objects.filter(channel_id=channel).first()        
+        if arena is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        # Arena params
+        guild = arena.guild        
+        host = arena.created_by
+        min_tier = arena.min_tier
+        max_tier = arena.max_tier
+        
+        hosts = arena.players.all()
+        hosts = [host.id for host in hosts if host.status() == "PLAYING"]
+        
+        # Search and parse
+        arenas = host.search(min_tier, max_tier, guild).all()        
+        players = [arena.created_by for arena in arenas if arena.created_by.status() != "INVITED"]
+        players.sort(key=lambda player: player.tier.weight, reverse=True)
+        players = [{'id': player.id, 'tier': player.tier.name} for player in players]
 
-
-
-        host = Player.objects.filter(id=host_id).first()
-        host_player = ArenaPlayer.objects.filter(status="PLAYING", player=host)
-
-        arena = host_player.arena
+        return Response({'players': players, 'hosts': hosts}, status=status.HTTP_200_OK)    
 
     def create(self, request):
         guild_id = request.data['guild']

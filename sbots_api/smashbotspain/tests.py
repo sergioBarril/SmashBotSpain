@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 
 # Models
-from smashbotspain.models import Arena, Player, ArenaPlayer, Tier, Message
+from smashbotspain.models import Arena, Player, ArenaPlayer, Tier, Message, Guild
 
 def make_player(id, name, tier=None):
     player = Player(
@@ -43,10 +43,16 @@ class ArenaTestCase(TestCase):
         self.tier3 = make_tier(id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
         self.tier4 = make_tier(id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
 
+        # Setup Guild
+        self.guild = Guild(id=1284839194, spam_channel=183813893, flairing_channel=3814884,
+            list_channel=1190139, list_message=1949194, match_timeout=90, cancel_time=30, ggs_time=15)
+        self.guild.save()
+
     def test_friendlies_search(self):
         client = APIClient()
 
         body = {            
+            'guild' : self.guild.id,
             'created_by' : self.tropped.id,
             'player_name' : self.tropped.name,
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
@@ -69,6 +75,7 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body = {
+            'guild' : self.guild.id,
             'created_by' : self.tropped.id,
             'player_name' : self.tropped.name,
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
@@ -86,6 +93,7 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body = {            
+            'guild' : self.guild.id,
             'created_by' : self.tropped.id,  # Tropped
             'player_name' : self.tropped.name,
             'min_tier' : self.tier1.channel_id,  # Tier 1 channel
@@ -103,6 +111,7 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body_tropped = {            
+            'guild' : self.guild.id,
             'created_by' : self.tropped.id, # Tropped
             'player_name' : self.tropped.name,
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
@@ -112,6 +121,7 @@ class ArenaTestCase(TestCase):
         }
 
         body_razenokis = {            
+            'guild' : self.guild.id,
             'created_by' : self.razen.id, # Razen
             'player_name' : self.razen.name,
             'min_tier' : self.tier2.channel_id,  # Tier 2 channel
@@ -134,6 +144,7 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body = {            
+            'guild' : self.guild.id,
             'created_by' : self.tropped.id, # Tropped
             'player_name' : self.tropped.name,
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
