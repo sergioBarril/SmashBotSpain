@@ -167,46 +167,28 @@ class Matchmaking(commands.Cog):
 
                 is_closed = resp_body.get('closed', True)
                 messages = resp_body.get('messages', [])
-                player_ids = resp_body.get('players', [])
-                ggs_ids = resp_body.get('ggs_players', [])
+                players = resp_body.get('players', {})
+                GGS_ARENA_COUNTDOWN = resp_body.get('ggs_time', 300)
                 
-                players = [ctx.guild.get_member(player_id) for player_id in player_ids]
-                ggs_players = [ctx.guild.get_member(player_id) for player_id in ggs_ids]
-                
-                if is_closed:                    
-                    player1, player2 = players                    
-                    text = f"**{player1.nickname()}** y **{player2.nickname()}** ya han terminado de jugar."
-                else:
-                    # Playing names
-                    if players:
-                        player_names = [player.nickname() for player in players]
-                        names_text = ", ".join(player_names[:-1])
-                        if len(players) > 1:
-                            names_text += "** y **"
-                        names_text += player_names[-1]
-                        text = f"¡**{names_text}** siguen jugando!"
-                    
-                    # GGs names
-                    if ggs_players:
-                        ggs_names = [player.nickname() for player in ggs_players]
-                        ggs_text = ", ".join(ggs_names[:-1])
-                        
-                        extra_n = ''
-                        if len(ggs_players) > 1:
-                            ggs_text += "** y **"
-                            extra_n = 'n'
-                        ggs_text += ggs_names[-1]
-                    
-                        text += f" **{ggs_text}** ya ha{extra_n} dejado de jugar."
+                text = self.message_content(guild, players)                
                 
                 await self.edit_messages(ctx, messages, text)
                 await ctx.send("GGs. ¡Gracias por jugar!")
+                
+                if GGS_ARENA_COUNTDOWN > 60:
+                    time_text = time.strftime("%M minutos y %S segundos", time.gmtime(GGS_ARENA_COUNTDOWN))
+                else:
+                    time_text = time.strftime("%S segundos", time.gmtime(GGS_ARENA_COUNTDOWN))
                 await self.update_list_message(guild=ctx.guild)
                 
                 # Delete arena
-                if is_closed:                
+                if is_closed:
+                    cancel_message = "Parce que ya han dejado de jugar, rip. ¡Presta más atención la próxima vez!"
+                    await self.cancel_invites(arena_id=arena_channel.id, message=cancel_message)
                     await asyncio.sleep(GGS_ARENA_COUNTDOWN)
-                    await arena_channel.delete()
+                    await arena_channel.delete()                    
+                else:
+                    await arena_channel.set_permissions(author, read_messages=False, send_messages=False)
             else:
                 await ctx.send("GGs. ¡Gracias por jugar!")
     
@@ -232,6 +214,8 @@ class Matchmaking(commands.Cog):
                 resp_body = json.loads(html)
                 
                 await ctx.send(f"Vale **{player.nickname()}**, te saco de la cola. ¡Hasta pronto!")
+                cancel_message = "Has cancelado la búsqueda, así que cancelé también la invitación."
+                await self.cancel_invites(player_id=player.id, message=cancel_message)
                 
                 #  Delete mention messages
                 messages = resp_body.get('messages', [])
@@ -254,12 +238,11 @@ class Matchmaking(commands.Cog):
     
     @commands.command()
     @commands.check(in_arena)
-    async def invite(self, ctx):
+    async def invite(self, ctx):        
         host = ctx.author
         arena = ctx.channel
 
-        # if len(self.arena_status[arena.name]) > 2:
-        #     return await ctx.send("Ya sois 3 en la arena (aún no están implementadas las arenas de más de 3 personas).")                
+        asyncio.current_task().set_name(f"invite-{arena.id}")
         
         # Show mentions list        
         players = await self.invite_mention_list(ctx)        
@@ -267,6 +250,8 @@ class Matchmaking(commands.Cog):
         guest = players['guest']
         hosts = players['hosts']
         
+        asyncio.current_task().set_name(f"invite-{arena.id}-{guest.id}")
+
         # Add as invited
         body = {'channel' : arena.id }
         async with self.bot.session.post(f'http://127.0.0.1:8000/players/{guest.id}/invite/', json=body) as response:
@@ -293,6 +278,34 @@ class Matchmaking(commands.Cog):
     #  ************************************
     #             M E S S A G E S
     #  ************************************
+    def message_content(self, guild, players):
+        playing_ids = players.get('PLAYING', [])
+        ggs_ids = players.get('GGS', [])
+
+        playing_players = [guild.get_member(player_id) for player_id in playing_ids]
+        ggs_players = [guild.get_member(player_id) for player_id in ggs_ids]
+        
+        text = ""                
+        # Playing names
+        if playing_players:
+            player_names = [player.nickname() for player in playing_players]
+            names_text = ", ".join(player_names[:-1])            
+            names_text += "** y **"
+            names_text += player_names[-1]
+            text += f"¡**{names_text}** están jugando!"            
+        # GGs names
+        if ggs_players:
+            ggs_names = [player.nickname() for player in ggs_players]
+            ggs_text = ", ".join(ggs_names[:-1])                        
+            extra_n = ''
+            if len(ggs_players) > 1:
+                ggs_text += "** y **"
+                extra_n = 'n'
+            ggs_text += ggs_names[-1]                    
+            text += f" **{ggs_text}** ya ha{extra_n} dejado de jugar."
+        
+        return text
+
 
     async def edit_messages(self, ctx, messages, text):
         if not messages:
@@ -343,9 +356,15 @@ class Matchmaking(commands.Cog):
     # ************************************************
 
     async def matchmaking(self, ctx, player1, player2, resp_body):
+        guild = ctx.guild
         match_found = True
 
         while match_found:
+            cancel_message = "¡Felicidades, encontraste match! Cancelo las invitaciones que tenías."
+            
+            await self.cancel_invites(player_id=player1.id, message=cancel_message)
+            await self.cancel_invites(player_id=player2.id, message=cancel_message)
+            
             match_confirmation = await self.confirm_match(ctx, player1, player2)
 
             if match_confirmation.get('all_accepted', False):
@@ -359,7 +378,7 @@ class Matchmaking(commands.Cog):
                 if player_id is None:
                     return await self.update_list_message(guild=ctx.guild)
                                 
-                body = {'min_tier' : match_confirmation['min_tier'], 'max_tier' : match_confirmation['max_tier']}
+                body = {'min_tier' : match_confirmation['min_tier'], 'max_tier' : match_confirmation['max_tier'], 'guild': guild.id}
                 
                 # SEARCH AGAIN
                 async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player_id}/matchmaking/', json=body) as response:
@@ -592,13 +611,14 @@ class Matchmaking(commands.Cog):
         await asyncio.sleep(0.5)
         
         # Wait for user reaction
-        invite_task = asyncio.create_task(self.wait_invite_reaction(ctx, message, guest, hosts), name=f"{guest.id}{arena.id}")
+        invite_task = asyncio.create_task(self.wait_invite_reaction(ctx, message, guest, hosts))
         self.arena_invites[guest.id].append(invite_task)
         await invite_task
 
     @asyncio.coroutine
     async def wait_invite_reaction(self, ctx, message, guest, hosts):
         arena = ctx.channel
+        guild = ctx.guild
 
         def check_message(reaction, user):
             is_same_message = (reaction.message == message)
@@ -626,6 +646,7 @@ class Matchmaking(commands.Cog):
                     resp_body = json.loads(html)
 
                     messages = resp_body.get('messages', [])
+                    players = resp_body.get('players', {})
                 else:
                     print("Error with invite confirmation")
             
@@ -633,28 +654,47 @@ class Matchmaking(commands.Cog):
                 await arena.set_permissions(guest, read_messages=True, send_messages=True)
                 await self.update_list_message(guild=ctx.guild)               
                 
-                # Build message text
-                host_names = [host.nickname() for host in hosts]
-                
-                names_text = ", ".join(host_names[:-1])        
-                
-                if len(hosts) > 1:
-                    names_text += "** y **"
-                
-                names_text += host_names[-1]
-                
-                edited_text = f"**{names_text}** están jugando."
+
+                edited_text = self.message_content(guild, players)
 
                 await self.edit_messages(ctx, messages, edited_text)            
 
-            await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
-            await guest.send(f"Perfecto {guest.mention}, ¡dirígete a {arena.mention} y saluda a tus anfitriones!")
+                await arena.send(f"Abran paso, que llega el low tier {player.mention}.")
+                await guest.send(f"Perfecto {guest.mention}, ¡dirígete a {arena.mention} y saluda a tus anfitriones!")
+            else:
+                await arena.send(f"**{player.nickname()}** rechazó la invitación.")
+                await guest.send(f"Vale, **{player.nickname()}**: invitación rechazada.")
 
         except asyncio.CancelledError as e:
             remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
             await asyncio.gather(*remove_reactions)
-            await guest.send("Parce que ya han dejado de jugar, rip. ¡Intenta estar más atento la próxima vez!")
+            await guest.send(str(e))
+            await arena.send(f"**{guest.nickname()}** no puede venir...")
             return
+
+    async def cancel_invites(self, arena_id=None, player_id=None, message=None):
+        """
+        Cancels the invite tasks, with the player id or arena id given.
+        """
+        current_mode = 1 if arena_id is not None else 2
+        modes = {
+            1: str(arena_id),
+            2: str(player_id),
+        }
+        
+        tasks = asyncio.all_tasks()
+        for task in tasks:
+            task_name = task.get_name()                        
+            detailed_task = task_name.split("-")
+            
+            if len(detailed_task) > current_mode:
+                is_invite = detailed_task[0] == "invite"
+                is_wanted = detailed_task[current_mode] == modes[current_mode]
+                
+                if is_invite and is_wanted:
+                    task.cancel(msg=message)
+
+
 
     #  ***********************************************
     #           A   R   E   N   A   S
@@ -719,7 +759,7 @@ class Matchmaking(commands.Cog):
                     player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier'], 'status' : player['status']} for player in arena]
                     new_message += (
                         f"**[{EMOJI_CONFIRM if player1['status'] == 'ACCEPTED' else EMOJI_HOURGLASS}]  {player1['name']}** ({player1['tier']})"
-                        f" vs. **{player2['name']} ({player2['tier']}) [{EMOJI_CONFIRM if player2['status'] == 'ACCEPTED' else EMOJI_HOURGLASS}]**\n"
+                        f" vs. **{player2['name']}** ({player2['tier']}) **[{EMOJI_CONFIRM if player2['status'] == 'ACCEPTED' else EMOJI_HOURGLASS}]**\n"
                     )
                 if resp_body['playing']:
                     new_message += "\n**ARENAS:**\n"
@@ -737,7 +777,7 @@ class Matchmaking(commands.Cog):
                 print("Error")
                 return False        
     
-    async def invite_mention_list(self, ctx):
+    async def invite_mention_list(self, ctx):        
         message_text = (f"**__Lista de menciones:__**\n"
             f"_¡Simplemente reacciona con el emoji del jugador a invitar (solo uno)!_\n")
         

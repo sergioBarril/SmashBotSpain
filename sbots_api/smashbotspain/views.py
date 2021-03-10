@@ -48,6 +48,10 @@ class PlayerViewSet(viewsets.ModelViewSet):
             old_arena = Arena.objects.filter(guild=guild_id, created_by=player, status="SEARCHING").first()                
             old_arena.set_status("WAITING")
 
+            # REMOVE INVITATIONS
+            for ap in ArenaPlayer.objects.filter(player__id__in=(player_id, arena.created_by.id), status="INVITED").all():
+                ap.delete()
+
             return Response({
                 "match_found" : True,
                 "player_one" : arena.created_by.id,
@@ -85,7 +89,10 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 
                 guest_arena.delete()
 
+                players = arena.get_players()
+
                 response = {
+                    'players' : players,
                     'messages' : [{'id': message.id, 'channel': message.tier.channel_id} for message in arena.message_set.all()]
                 }
             else:
@@ -185,6 +192,9 @@ class PlayerViewSet(viewsets.ModelViewSet):
     def invite(self, request, pk):
         player = self.get_object()
 
+        if player.status() != "WAITING":
+            return Response({'cant_invite': 'not_searching'}, status=status.HTTP_400_BAD_REQUEST)
+
         channel = request.data['channel']
         arena = Arena.objects.filter(channel_id=channel).first()
 
@@ -269,7 +279,8 @@ class GuildViewSet(viewsets.ModelViewSet):
         playing_arenas = Arena.objects.filter(status="PLAYING")
         playing_list = response['playing']
         for arena in playing_arenas:
-            playing_list.append([{'id' : player.id, 'tier': player.tier.name, 'status': player.status()} for player in arena.players.all()])
+            playing_list.append([{'id' : ap.player.id, 'tier': ap.player.tier.name, 'status': ap.status} 
+                for ap in arena.arenaplayer_set.filter(status="PLAYING").all()])
         
         return Response(response, status=status.HTTP_200_OK)        
 
@@ -293,6 +304,10 @@ class ArenaViewSet(viewsets.ModelViewSet):
         channel_id = request.data['channel_id']
         arena = Arena.objects.filter(channel_id=channel_id).first()
         author = request.data['author']
+        guild_id = request.data['guild']
+
+        # Get GGs time
+        guild = Guild.objects.get(id=guild_id)        
 
         # Check author in arena
         if arena:
@@ -301,16 +316,10 @@ class ArenaViewSet(viewsets.ModelViewSet):
         if not arena or arena.status != "PLAYING" or not is_in_arena:
             return Response({'not_playing': "NOT_PLAYING"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get players
-        players = []
-        for arena_player in arena.arenaplayer_set.filter(status="PLAYING").all():
-            players.append(arena_player.player.id)
-
-        is_closed = len(players) <= 2
+        # Min players?        
+        is_closed = arena.arenaplayer_set.filter(status="PLAYING").count() <= 2        
         
-        if not is_closed:            
-            players.remove(author)            
-            
+        if not is_closed:
             arena_player = arena.arenaplayer_set.filter(player__id=author, status="PLAYING").first()
             if arena_player is None:
                 return Response({'not_playing': "NOT_PLAYING"}, status=status.HTTP_400_BAD_REQUEST)
@@ -324,10 +333,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
             arena.channel_id = None
             arena.save()
 
-        # Get GGs players
-        ggs_players = []
-        for arena_player in arena.arenaplayer_set.filter(status="GGS").all():
-            ggs_players.append(arena_player.player.id)
+        # Get players
+        players = arena.get_players()
 
         # Get messages
         messages = []
@@ -335,7 +342,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
             messages.append({'id': message.id, 'channel': message.tier.channel_id})
             if is_closed:
                 message.delete()
-        return Response({'closed': is_closed, 'messages': messages, 'players': players, 'ggs_players': ggs_players}, status=status.HTTP_200_OK)
+        return Response({'closed': is_closed, 'messages': messages, 'players': players, 'ggs_time': guild.ggs_time}, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['post'])
     def cancel(self, request):
@@ -354,6 +361,10 @@ class ArenaViewSet(viewsets.ModelViewSet):
         #  CANCEL
         for arena in searching_arenas:
             arena.set_status("CANCELLED")
+        
+        # REMOVE INVITATIONS
+        for ap in ArenaPlayer.objects.filter(player=player, status="INVITED").all():
+            ap.delete()
 
         messages = []
         for message in arena.message_set.all():
@@ -373,7 +384,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         if arena is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         
-        # Arena params
+        # Search params
         guild = arena.guild        
         host = arena.created_by
         min_tier = arena.min_tier
@@ -382,7 +393,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         hosts = arena.players.all()
         hosts = [host.id for host in hosts if host.status() == "PLAYING"]
         
-        # Search and parse
+        # Search players, and parse
         arenas = host.search(min_tier, max_tier, guild).all()        
         players = [arena.created_by for arena in arenas if arena.created_by.status() != "INVITED"]
         players.sort(key=lambda player: player.tier.weight, reverse=True)
@@ -480,6 +491,11 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 
             old_arena.set_status("WAITING")
 
+            # REMOVE INVITATIONS
+            for ap in ArenaPlayer.objects.filter(player__id__in=(player_id, arena.created_by.id), status="INVITED").all():
+                ap.delete()
+
+            # Messages
             arena_messages = Message.objects.filter(arena=arena).all()
             old_arena_messages = Message.objects.filter(arena=old_arena).all()
 

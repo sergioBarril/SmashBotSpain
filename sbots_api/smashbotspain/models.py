@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.postgres.fields import ArrayField
 from django.core import validators
 from functools import total_ordering
+from collections import defaultdict
 
 
 # Create your models here.
@@ -170,6 +171,19 @@ class Arena(models.Model):
 
         return tiers.all()
 
+    def get_players(self):
+        """
+        Returns a defaultdict with the id of the players by status        
+        """
+        arena_players = self.arenaplayer_set.all()
+
+        players = defaultdict(list)
+        
+        for ap in arena_players:
+            players[ap.status].append(ap.player.id)
+        
+        return players
+
 
     def set_status(self, status):
         """
@@ -211,7 +225,7 @@ class ArenaPlayer(models.Model):
 
     
     CANT_JOIN_STATUS = ["CONFIRMATION", "ACCEPTED", "PLAYING"]
-    CAN_JOIN_STATUS = ["WAITING", "INVITED", "GG"]
+    CAN_JOIN_STATUS = ["WAITING", "INVITED", "GGS"]
     
     status = models.CharField(max_length=12, choices=STATUS)
 
