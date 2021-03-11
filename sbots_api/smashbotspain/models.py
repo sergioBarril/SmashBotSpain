@@ -102,15 +102,18 @@ class Player(models.Model):
         pass
         # return not arena_player.exists()
     
-    def search(self, min_tier, max_tier, guild):
+    def search(self, min_tier, max_tier, guild, invite=False):
         arenas = Arena.objects.filter(guild=guild)
-        arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)
-        arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
         arenas = arenas.filter(status="SEARCHING")
-        arenas = arenas.exclude(created_by=self)
-        arenas = arenas.exclude(rejected_players=self)        
+        arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)
 
-        my_arena = Arena.objects.filter(created_by=self).first()
+        if not invite:
+            arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
+            arenas = arenas.exclude(created_by=self)        
+        
+        arenas = arenas.exclude(rejected_players=self)
+        my_status = "PLAYING" if invite else "SEARCHING"
+        my_arena = Arena.objects.filter(created_by=self, status=my_status).first()
         if my_arena is not None:
             arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
         
@@ -225,7 +228,7 @@ class ArenaPlayer(models.Model):
 
     
     CANT_JOIN_STATUS = ["CONFIRMATION", "ACCEPTED", "PLAYING"]
-    CAN_JOIN_STATUS = ["WAITING", "INVITED", "GGS"]
+    CAN_JOIN_STATUS = ["INVITED", "WAITING", "GGS"]
     
     status = models.CharField(max_length=12, choices=STATUS)
 

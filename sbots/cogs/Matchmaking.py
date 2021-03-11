@@ -247,6 +247,9 @@ class Matchmaking(commands.Cog):
         # Show mentions list        
         players = await self.invite_mention_list(ctx)        
         
+        if players is None:
+            return        
+        
         guest = players['guest']
         hosts = players['hosts']
         
@@ -794,13 +797,15 @@ class Matchmaking(commands.Cog):
                 players = resp_body['players']
                 hosts = resp_body['hosts']
             else:
-                return await ctx.send("Error, no se puede mostrar la lista. ¿Quizá cerrasteis la arena?")
+                await ctx.send("Error, no se puede mostrar la lista. ¿Quizá cerrasteis la arena?")
+                return
 
         # There are only 10 emojis with numbers. For now that'll be more than enough.
         players = players[:10]
 
         if not players:
-            return await ctx.send("No hay nadie buscando partida.")
+            await ctx.send("No hay nadie buscando partida.")
+            return
                 
         # Get player name        
         for player in players:

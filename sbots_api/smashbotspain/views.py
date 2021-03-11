@@ -77,10 +77,16 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 return Response(status=status.HTTP_404_NOT_FOUND)
             
             if accepted:
+                ggs_player = ArenaPlayer.objects.filter(status="GGS", player=player, arena=arena).first()
+                
+                if ggs_player is not None:
+                    arena_player, ggs_player = ggs_player, arena_player
+                    ggs_player.delete()
+
                 arena_player.status = "PLAYING"
                 arena_player.save()
 
-                guest_arena = Arena.objects.filter(created_by=player).first()
+                guest_arena = Arena.objects.filter(created_by=player, status="SEARCHING").first()
                 messages = guest_arena.message_set.all()
                 
                 for message in messages:
@@ -95,8 +101,9 @@ class PlayerViewSet(viewsets.ModelViewSet):
                     'players' : players,
                     'messages' : [{'id': message.id, 'channel': message.tier.channel_id} for message in arena.message_set.all()]
                 }
-            else:
+            else:                
                 response = {}
+                arena.rejected_players.add(player)
                 arena_player.delete()
             return Response(response, status=status.HTTP_200_OK)
         
@@ -394,7 +401,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         hosts = [host.id for host in hosts if host.status() == "PLAYING"]
         
         # Search players, and parse
-        arenas = host.search(min_tier, max_tier, guild).all()        
+        arenas = host.search(min_tier, max_tier, guild, invite=True).all()        
         players = [arena.created_by for arena in arenas if arena.created_by.status() != "INVITED"]
         players.sort(key=lambda player: player.tier.weight, reverse=True)
         players = [{'id': player.id, 'tier': player.tier.name} for player in players]
