@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import json
 
 from discord.ext import tasks, commands
+from discord.ext.commands.cooldowns import BucketType
+
 from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
                         TierValidationException, AlreadyMatchedException)
 
@@ -238,6 +240,7 @@ class Matchmaking(commands.Cog):
     
     @commands.command()
     @commands.check(in_arena)
+    @commands.cooldown(1, 15, BucketType.channel)
     async def invite(self, ctx):        
         host = ctx.author
         arena = ctx.channel
@@ -273,6 +276,8 @@ class Matchmaking(commands.Cog):
     async def invite_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
         else:
             print(error)
 
