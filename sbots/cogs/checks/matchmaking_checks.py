@@ -10,6 +10,10 @@ import json
 
 def in_arena(ctx):
     arena = ctx.channel
+    
+    if isinstance(arena, discord.DMChannel):
+        return False    
+    
     arenas_category = discord.utils.get(ctx.guild.categories, name="ARENAS")
 
     return arena in arenas_category.channels

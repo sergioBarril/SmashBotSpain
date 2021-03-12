@@ -245,6 +245,8 @@ class Matchmaking(commands.Cog):
         host = ctx.author
         arena = ctx.channel
 
+        await self.cancel_invites(arena_id=arena.id, is_list=True)
+
         asyncio.current_task().set_name(f"invite-{arena.id}")
         
         # Show mentions list        
@@ -255,6 +257,8 @@ class Matchmaking(commands.Cog):
         
         guest = players['guest']
         hosts = players['hosts']
+
+        await ctx.send(f"Invitación enviada a **{guest.nickname()}**.")
         
         asyncio.current_task().set_name(f"invite-{arena.id}-{guest.id}")
 
@@ -680,7 +684,7 @@ class Matchmaking(commands.Cog):
             await arena.send(f"**{guest.nickname()}** no puede venir...")
             return
 
-    async def cancel_invites(self, arena_id=None, player_id=None, message=None):
+    async def cancel_invites(self, arena_id=None, player_id=None, message=None, is_list=False):
         """
         Cancels the invite tasks, with the player id or arena id given.
         """
@@ -698,6 +702,9 @@ class Matchmaking(commands.Cog):
             if len(detailed_task) > current_mode:
                 is_invite = detailed_task[0] == "invite"
                 is_wanted = detailed_task[current_mode] == modes[current_mode]
+                
+                if is_list:
+                    is_wanted = is_wanted and len(detailed_task) == 2
                 
                 if is_invite and is_wanted:
                     task.cancel(msg=message)

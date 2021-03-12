@@ -123,13 +123,13 @@ class PlayerViewSet(viewsets.ModelViewSet):
             other_accepted = other_player.status() == "ACCEPTED"
             
             if player == arena.created_by:
-                other_arena = Arena.objects.filter(created_by=other_player).first()
+                other_arena = Arena.objects.filter(created_by=other_player, status="WAITING").first()
                 other_arena.set_status("SEARCHING")
                 searching_arena = other_arena
                 arena.delete()
             else:
                 arena_player.delete()
-                other_arena = Arena.objects.filter(created_by=player).first()
+                other_arena = Arena.objects.filter(created_by=player, status="WAITING").first()
                 arena.set_status("SEARCHING")
                 searching_arena = arena                
                 other_arena.delete()            
