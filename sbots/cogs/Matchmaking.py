@@ -5,6 +5,7 @@ import time
 import re
 import itertools
 import typing
+import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
 import json
@@ -142,7 +143,7 @@ class Matchmaking(commands.Cog):
         if isinstance(error, commands.CheckFailure):
             pass
         else:
-            print(error)
+            traceback.print_stack()
 
     @commands.command()
     @commands.check(in_arena)
@@ -195,7 +196,7 @@ class Matchmaking(commands.Cog):
         if isinstance(error, commands.CheckFailure):
             pass
         else:
-            print(error)
+            traceback.print_stack()
 
     @commands.command()
     async def cancel(self, ctx):
@@ -279,7 +280,7 @@ class Matchmaking(commands.Cog):
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
         else:
-            print(error)
+            traceback.print_stack()
 
 
 
@@ -856,7 +857,7 @@ class Matchmaking(commands.Cog):
         if isinstance(error, commands.CheckFailure):
             pass
         else:
-            print(error)
+            traceback.print_stack()
 
     # *******************************
     #           C L E A N   U P
