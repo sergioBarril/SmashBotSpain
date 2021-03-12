@@ -12,13 +12,8 @@ import json
 from discord.ext import tasks, commands
 from discord.ext.commands.cooldowns import BucketType
 
-from .Exceptions import (RejectedException, ConfirmationTimeOutException, 
-                        TierValidationException, AlreadyMatchedException)
-
-from .params.matchmaking_params import (TIER_NAMES, TIER_CHANNEL_NAMES, EMOJI_CONFIRM, EMOJI_REJECT, 
-                    EMOJI_HOURGLASS, NUMBER_EMOJIS, LIST_CHANNEL_ID, LIST_MESSAGE_ID,
-                    WAIT_AFTER_REJECT, GGS_ARENA_COUNTDOWN, DEV_MODE,
-                    FRIENDLIES_TIMEOUT)
+from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT, 
+                    EMOJI_HOURGLASS, NUMBER_EMOJIS)
 
 from .checks.matchmaking_checks import (in_arena, in_tier_channel)
 
