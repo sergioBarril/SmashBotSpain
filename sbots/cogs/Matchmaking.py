@@ -175,13 +175,14 @@ class Matchmaking(commands.Cog):
                 if GGS_ARENA_COUNTDOWN > 60:
                     time_text = time.strftime("%M minutos y %S segundos", time.gmtime(GGS_ARENA_COUNTDOWN))
                 else:
-                    time_text = time.strftime("%S segundos", time.gmtime(GGS_ARENA_COUNTDOWN))
+                    time_text = time.strftime("%S segundos", time.gmtime(GGS_ARENA_COUNTDOWN))                
                 await self.update_list_message(guild=ctx.guild)
                 
                 # Delete arena
                 if is_closed:
+                    await ctx.send(f"_La arena se destruirá en `{time_text}`._")
                     cancel_message = "Parce que ya han dejado de jugar, rip. ¡Presta más atención la próxima vez!"
-                    await self.cancel_invites(arena_id=arena_channel.id, message=cancel_message)
+                    await self.cancel_invites(arena_id=arena_channel.id, message=cancel_message)                    
                     await asyncio.sleep(GGS_ARENA_COUNTDOWN)
                     await arena_channel.delete()                    
                 else:
