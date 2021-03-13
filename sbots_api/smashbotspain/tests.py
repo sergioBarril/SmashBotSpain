@@ -14,11 +14,11 @@ from smashbotspain.models import Arena, Player, ArenaPlayer, Tier, Message, Guil
 def make_player(id, name, tier=None):
     player = Player(
         id = id,
-        name = name,
-        tier = tier
+        name = name
     )
     player.save()
-    
+    if tier:
+        tier.player_set.add(player)
     return player
 
 def make_tier(id, name, channel_id, weight):

@@ -5,8 +5,11 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild
-from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer
+from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main
+from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer, MainSerializer
+
+from smashbotspain.aux_methods.roles import normalize_character
+from smashbotspain.aux_methods.text import key_format
 
 # Create your views here.
 class PlayerViewSet(viewsets.ModelViewSet):
@@ -25,6 +28,79 @@ class PlayerViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def roles(self, request, pk):
+        """
+        Updates the role of the player. Can be of many types:
+            - character (main or second)
+            - region
+            - tier pings
+        """
+        player = self.get_object()
+        role_type = request.data['role_type']
+        param = request.data['param']
+        
+        guild_id = request.data['guild']        
+        guild = Guild.objects.get(id=guild_id)
+
+        action = None
+        role = None
+        
+        # GET ROLE
+        if role_type == "region":
+            role = Region.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)).first()
+        
+        elif role_type in ("main", "second", "pocket"):
+            normalized = normalize_character(param)
+            if normalized:
+                role = Character.objects.filter(guild=guild, name=normalized).first()
+            else:                
+                role = Character.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)).first()
+        else:
+            return Response({'bad_type': "BAD_ROLE_TYPE"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if role is None:           
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        # ADD OR REMOVE ROLE
+        if role_type == "region": # REGIONS
+            if role.player_set.filter(player=player).exists():
+                action = "REMOVE"
+                role.player_set.remove(player)
+            else:
+                action = "ADD"
+                role.player_set.add(player)
+        else: # CHARACTER MAINS
+            if main := Main.objects.filter(player=player, character=role, status=role_type.upper()):
+                action = "REMOVE"
+                main.first().delete()
+            else:
+                if main := Main.objects.filter(player=player, character=role):
+                    action = "SWAP"
+                else:
+                    action = "ADD"                    
+                
+                new_main = {
+                    'status': role_type.upper(),
+                    'player': player,
+                    'character': role,
+                    'guild': guild,
+                }
+                serializer = MainSerializer(data=new_main)
+                if serializer.is_valid():
+                    serializer.save()
+                else:
+                    print(serializer.errors)
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)                
+
+                if action == "SWAP":
+                    main.first().delete()
+        
+        if action in ("ADD", "SWAP"):
+            return Response({'name': role.name, 'action': action}, status=status.HTTP_201_CREATED)
+        if action == "REMOVE":
+            return Response({'name': role.name, 'action': action}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def matchmaking(self, request, pk):

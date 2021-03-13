@@ -1,6 +1,8 @@
 import discord
 import asyncio
 import unicodedata
+import aiohttp
+
 
 from discord.ext import tasks, commands
 
@@ -43,58 +45,102 @@ class Flairing(commands.Cog):
             else:
                 self.tier_roles[tier_name] = discord.utils.get(all_roles, name=tier_name)
     
-    @commands.command()
+
+    @commands.command(aliases=["region", "main", "second", "pocket"])
     @commands.check(in_flairing_channel)
-    async def region(self, ctx, *, region_name = None):        
+    async def set_role(self, ctx, *, param = None):
         player = ctx.author
+        guild = ctx.guild
+        
         await ctx.message.delete(delay=20)
-        
-        if region_name is None:
-            return await ctx.send(f"Así no: simplemente pon `.region X`, cambiando `X` por el nombre de tu región.", delete_after=20)
-        
-        region_key = key_format(region_name)
 
-        if region_key not in self.region_roles.keys():            
-            return await ctx.send(f"Por ahora no está contemplado {region_name} como región. ¡Asegúrate de que lo hayas escrito bien!", delete_after=20)        
-        
-        # Fetch new region
-        new_region_role = self.region_roles[key_format(region_name)]                
-        old_region_roles = [role for role in player.roles if role.name in REGIONS]
+        role_type = ctx.invoked_with
+        if role_type == "set_role":
+            return
 
-        if new_region_role in old_region_roles:
-            await player.remove_roles(new_region_role)            
-            return await ctx.send(f"Vale, te he quitado el rol de {new_region_role.name}.", delete_after=20)
-        else:
-            await player.add_roles(new_region_role)
-            return await ctx.send(f"Hecho, te he añadido el rol de {new_region_role.name}.", delete_after=20)
-        
-    @commands.command(aliases=["main", "second"])
-    @commands.check(in_flairing_channel)
-    async def character(self, ctx, *, char_name=None):
-        player = ctx.author
-        await ctx.message.delete(delay = 20)
-        
-        if char_name is None:
-            return await ctx.send(f"Así no: simplemente pon `.main X`, cambiando `X` por el nombre de tu personaje.", delete_after=20)
+        body = {
+            'guild': guild.id,
+            'role_type': role_type,
+            'player': player.id,
+            'param' : param,
+        }
 
-        character_key = key_format(char_name)
-        normalized_char = normalize_character(char_name)
-        
-        if not normalized_char:            
-            return await ctx.send(f"No existe el personaje {char_name}... Prueba escribiéndolo diferente o contacta con un admin.", delete_after=20)
-        
-        # Fetch character role
-        new_char_role = self.character_roles[normalized_char]
-        old_char_roles = [role for role in player.roles if role.name in CHARACTERS]
+        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/roles/', json=body) as response:
+            # MATCH FOUND OR STARTED SEARCHING
+            if response.status == 201:
+                html = await response.text()
+                resp_body = json.loads(html)
 
-        if new_char_role in old_char_roles:
-            await player.remove_roles(new_char_role)            
-            return await ctx.send(f"Vale, te he quitado el rol de {new_char_role.name}.", delete_after=20)
-        elif len(old_char_roles) > 4:
-            return await ctx.send(f"Oye, filtra un poco. Ya tienes muchos personajes, quítate alguno antes de añadir más.", delete_after=20)
-        else:
-            await player.add_roles(new_char_role)
-            return await ctx.send(f"Hecho, te he añadido el rol de {new_char_role.name}.", delete_after=20)
+                role_name = resp_body['name']
+                action = resp_body['action']
+                
+                if role_type == "region":
+                    await ctx.send(f"Te he puesto el rol de **{role_name}**.")
+                elif role_type in ('main', 'second', 'pocket'):
+                    if action == "ADD":
+                        await ctx.send(f"Te he añadido como {role_type} **{role_name}**.")
+                    elif action == "SWAP":
+                        await ctx.send(f"Perfecto, **{role_name}** es ahora tu {role_type}.")                
+            elif response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                role_name = resp_body['name']
+                ctx.send(f"Te he quitado el rol de **{role_name}**.")
+
+
+    # @commands.command()
+    # @commands.check(in_flairing_channel)
+    # async def region(self, ctx, *, region_name = None):        
+    #     player = ctx.author
+    #     await ctx.message.delete(delay=20)
+        
+    #     if region_name is None:
+    #         return await ctx.send(f"Así no: simplemente pon `.region X`, cambiando `X` por el nombre de tu región.", delete_after=20)
+        
+    #     region_key = key_format(region_name)
+
+    #     if region_key not in self.region_roles.keys():            
+    #         return await ctx.send(f"Por ahora no está contemplado {region_name} como región. ¡Asegúrate de que lo hayas escrito bien!", delete_after=20)        
+        
+    #     # Fetch new region
+    #     new_region_role = self.region_roles[key_format(region_name)]                
+    #     old_region_roles = [role for role in player.roles if role.name in REGIONS]
+
+    #     if new_region_role in old_region_roles:
+    #         await player.remove_roles(new_region_role)            
+    #         return await ctx.send(f"Vale, te he quitado el rol de {new_region_role.name}.", delete_after=20)
+    #     else:
+    #         await player.add_roles(new_region_role)
+    #         return await ctx.send(f"Hecho, te he añadido el rol de {new_region_role.name}.", delete_after=20)
+        
+    # @commands.command(aliases=["main", "second"])
+    # @commands.check(in_flairing_channel)
+    # async def character(self, ctx, *, char_name=None):
+    #     player = ctx.author
+    #     await ctx.message.delete(delay = 20)
+        
+    #     if char_name is None:
+    #         return await ctx.send(f"Así no: simplemente pon `.main X`, cambiando `X` por el nombre de tu personaje.", delete_after=20)
+
+    #     character_key = key_format(char_name)
+    #     normalized_char = normalize_character(char_name)
+        
+    #     if not normalized_char:            
+    #         return await ctx.send(f"No existe el personaje {char_name}... Prueba escribiéndolo diferente o contacta con un admin.", delete_after=20)
+        
+    #     # Fetch character role
+    #     new_char_role = self.character_roles[normalized_char]
+    #     old_char_roles = [role for role in player.roles if role.name in CHARACTERS]
+
+    #     if new_char_role in old_char_roles:
+    #         await player.remove_roles(new_char_role)            
+    #         return await ctx.send(f"Vale, te he quitado el rol de {new_char_role.name}.", delete_after=20)
+    #     elif len(old_char_roles) > 4:
+    #         return await ctx.send(f"Oye, filtra un poco. Ya tienes muchos personajes, quítate alguno antes de añadir más.", delete_after=20)
+    #     else:
+    #         await player.add_roles(new_char_role)
+    #         return await ctx.send(f"Hecho, te he añadido el rol de {new_char_role.name}.", delete_after=20)
 
     @commands.command()
     @commands.check(in_flairing_channel)
@@ -255,19 +301,19 @@ class Flairing(commands.Cog):
             print(error)
 
 
-    @region.error
-    async def region_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-        else:
-            print(error)
+    # @region.error
+    # async def region_error(self, ctx, error):
+    #     if isinstance(error, commands.CheckFailure):
+    #         pass
+    #     else:
+    #         print(error)
 
-    @character.error
-    async def character_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-        else:
-            print(error)
+    # @character.error
+    # async def character_error(self, ctx, error):
+    #     if isinstance(error, commands.CheckFailure):
+    #         pass
+    #     else:
+    #         print(error)
     
     @tier.error
     async def character_error(self, ctx, error):

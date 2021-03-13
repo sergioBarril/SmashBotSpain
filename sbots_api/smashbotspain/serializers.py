@@ -1,16 +1,46 @@
 from rest_framework import serializers
-from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild
+from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, Main, Region
+
+from smashbotspain.aux_methods.text import list_with_and
 
 class PlayerSerializer(serializers.ModelSerializer):
     regions = serializers.StringRelatedField(many=True, required=False)
-    tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
-    characters = serializers.StringRelatedField(required=False)
+    tiers = serializers.PrimaryKeyRelatedField(many=True, queryset=Tier.objects.all())
+    characters = serializers.StringRelatedField(many=True, required=False)
     name = serializers.CharField(required=False)
 
     class Meta:
         model = Player
-        fields = ('id', 'name', 'characters', 'regions', 'tier')
+        fields = ('id', 'name', 'characters', 'regions', 'tiers')
         depth = 1
+
+class MainSerializer(serializers.ModelSerializer):
+    player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
+    character = serializers.PrimaryKeyRelatedField(queryset=Character.objects.all())
+
+    def validate(self, data):
+        player = data['player']
+        character = data['character']
+        status = data['status']
+        guild = data['guild']
+        
+        if status not in ('MAIN', 'SECOND', 'POCKET'):
+            raise serializers.ValidationError(f"Status inválido")
+        
+        mains =  Main.objects.filter(status=status, player=player, character__guild=guild).all()
+        count = len(mains)
+        
+        if status == "MAIN" and count >= 2:
+            mains_text = list_with_and([main.char.name for main in mains], bold=True)
+            raise serializers.ValidationError(f"Ya tienes {count} mains: **{mains_text}**. ¡Pon a alguno en seconds o pocket!")
+
+        return data
+    
+    class Meta:
+        model = Main
+        fields = ('id', 'player', 'character', 'status')
+
+
 
 class ArenaSerializer(serializers.ModelSerializer):    
     guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())

@@ -29,6 +29,11 @@ class Guild(models.Model):
             validators.MinValueValidator(10)
     ])
 
+    role_message_time = models.IntegerField(default=25,
+        validators=[
+            validators.MinValueValidator(5)
+    ])    
+
 class Region(models.Model):
     id = models.BigIntegerField(primary_key=True)
     name = models.CharField(max_length=50)
@@ -39,10 +44,12 @@ class Region(models.Model):
 
 class Character(models.Model):
     id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=30)        
+    name = models.CharField(max_length=30)
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
         return self.name 
+    
 
 @total_ordering
 class Tier(models.Model):
@@ -76,12 +83,19 @@ class Player(models.Model):
     
     characters = models.ManyToManyField(Character, through="Main")
     regions = models.ManyToManyField(Region)
-    
-    tier = models.ForeignKey(Tier, null=True, on_delete=models.SET_NULL)
+     
+    tiers = models.ManyToManyField(Tier, blank=True)
 
     def __str__(self):
         return f"{self.name} ({self.tier})"
     
+    def tier(self, guild):
+        """
+        Returns the tier of the player in the given guild
+        """
+        return self.tier_set.filter(guild=guild).first
+
+
     def status(self):
         """
         Returns the status of the player
@@ -122,13 +136,14 @@ class Player(models.Model):
 class Main(models.Model):
     MAIN_SECOND = [
         ('MAIN', 'Main'),
-        ('SECOND', 'Second')
+        ('SECOND', 'Second'),
+        ('POCKET', 'Pocket')
     ]
 
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
     character = models.ForeignKey(Character, on_delete=models.CASCADE)   
     
-    main = models.CharField(max_length=10, choices=MAIN_SECOND)
+    status = models.CharField(max_length=10, choices=MAIN_SECOND)
 
 class Arena(models.Model):
     STATUS = [
