@@ -1,5 +1,31 @@
 from ..aux_methods.text import key_format
 
+SPANISH_REGIONS = [
+    "Albacete",
+    "Alicante",
+    "Andalucía",
+    "Aragón",
+    "Asturias",
+    "Baleares",
+    "Canarias",
+    "Cantabria",
+    "Catalunya",
+    "Castellón",
+    "Ciudad Real",
+    "Euskadi",
+    "Extremadura",
+    "Galicia",
+    "Guadalajara",
+    "León",
+    "Madrid",
+    "Murcia",
+    "La Rioja",
+    "Salamanca",
+    "Toledo",
+    "Valencia",
+    "Valladolid"
+]
+
 SMASH_CHARACTERS = [
     "Mario",
     "Donkey Kong",

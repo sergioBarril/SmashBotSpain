@@ -5,14 +5,36 @@ from smashbotspain.aux_methods.text import list_with_and
 
 class PlayerSerializer(serializers.ModelSerializer):
     regions = serializers.StringRelatedField(many=True, required=False)
-    tiers = serializers.PrimaryKeyRelatedField(many=True, queryset=Tier.objects.all())
+    tiers = serializers.SlugRelatedField(slug_field="discord_id", many=True, queryset=Tier.objects.all(), required=False)
     characters = serializers.StringRelatedField(many=True, required=False)
     name = serializers.CharField(required=False)
 
     class Meta:
         model = Player
-        fields = ('id', 'name', 'characters', 'regions', 'tiers')
+        fields = ('id', 'name', 'characters', 'regions', 'tiers', 'tier')
         depth = 1
+    
+    def create(self, validated_data):                
+        new_player = Player.objects.create(**validated_data)        
+        tier = Tier.objects.get(discord_id=self.context['tier'])
+        new_player.tiers.add(tier)
+        new_player.save()
+
+        return new_player
+
+class RegionSerializer(serializers.ModelSerializer):
+    guild = serializers.PrimaryKeyRelatedField(many=False, queryset=Guild.objects.all())
+
+    class Meta:
+        model = Region
+        fields = "__all__"
+
+class CharacterSerializer(serializers.ModelSerializer):
+    guild = serializers.PrimaryKeyRelatedField(many=False, queryset=Guild.objects.all())
+
+    class Meta:
+        model = Character
+        fields = '__all__'
 
 class MainSerializer(serializers.ModelSerializer):
     player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
@@ -45,8 +67,8 @@ class MainSerializer(serializers.ModelSerializer):
 class ArenaSerializer(serializers.ModelSerializer):    
     guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())
     created_by = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())    
-    max_tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
-    min_tier = serializers.PrimaryKeyRelatedField(queryset=Tier.objects.all())
+    max_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
+    min_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
 
     players = serializers.PrimaryKeyRelatedField(many=True, required=False, read_only=True)
 
@@ -91,9 +113,11 @@ class TierSerializer(serializers.ModelSerializer):
     guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())
     class Meta:
         model = Tier
-        fields = ('id', 'name', 'weight', 'channel_id', 'guild')
+        fields = ('discord_id', 'name', 'weight', 'channel_id', 'guild')
 
 class MessageSerializer(serializers.ModelSerializer):    
+    tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
+    
     class Meta:
         model = Message
         fields = ('id', 'tier', 'arena')

@@ -35,7 +35,7 @@ class Guild(models.Model):
     ])    
 
 class Region(models.Model):
-    id = models.BigIntegerField(primary_key=True)
+    discord_id = models.BigIntegerField()
     name = models.CharField(max_length=50)
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
     
@@ -43,7 +43,7 @@ class Region(models.Model):
         return self.name 
 
 class Character(models.Model):
-    id = models.BigIntegerField(primary_key=True)
+    discord_id = models.BigIntegerField()
     name = models.CharField(max_length=30)
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
@@ -57,7 +57,7 @@ class Tier(models.Model):
     Model for tiers. More weight == better role.
     Tier 1 > Tier 3
     """
-    id = models.BigIntegerField(primary_key=True)
+    discord_id = models.BigIntegerField()
     name = models.CharField(max_length=15)
     weight = models.IntegerField(default=0)
     channel_id = models.BigIntegerField()
@@ -79,21 +79,21 @@ class Tier(models.Model):
 
 class Player(models.Model):
     id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=20, null=True, blank=True)
+    name = models.CharField(max_length=90, null=True, blank=True)
     
-    characters = models.ManyToManyField(Character, through="Main")
-    regions = models.ManyToManyField(Region)
+    characters = models.ManyToManyField(Character, through="Main", blank=True)
+    regions = models.ManyToManyField(Region, blank=True)
      
     tiers = models.ManyToManyField(Tier, blank=True)
 
     def __str__(self):
-        return f"{self.name} ({self.tier})"
+        return f"{self.name}"
     
     def tier(self, guild):
         """
         Returns the tier of the player in the given guild
         """
-        return self.tier_set.filter(guild=guild).first
+        return self.tiers.filter(guild=guild).first()
 
 
     def status(self):

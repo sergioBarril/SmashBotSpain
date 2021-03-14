@@ -6,10 +6,13 @@ from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
 
 from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main
-from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer, MainSerializer
+from smashbotspain.serializers import (PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
+                                        MainSerializer, RegionSerializer, CharacterSerializer)
 
 from smashbotspain.aux_methods.roles import normalize_character
 from smashbotspain.aux_methods.text import key_format
+
+from smashbotspain.params.roles import SMASH_CHARACTERS, SPANISH_REGIONS
 
 # Create your views here.
 class PlayerViewSet(viewsets.ModelViewSet):
@@ -110,8 +113,8 @@ class PlayerViewSet(viewsets.ModelViewSet):
         player = self.get_object()
         guild_id = request.data['guild']
 
-        min_tier = Tier.objects.get(id=request.data['min_tier'])
-        max_tier = Tier.objects.get(id=request.data['max_tier'])
+        min_tier = Tier.objects.get(discord_id=request.data['min_tier'])
+        max_tier = Tier.objects.get(discord_id=request.data['max_tier'])
 
         arenas = player.search(min_tier, max_tier, guild_id)
 
@@ -231,9 +234,9 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 response_body.update({
                     'arena_id' : searching_arena.id,
                     'searching_player': searching_arena.created_by.id,
-                    'min_tier': searching_arena.min_tier.id,
-                    'max_tier': searching_arena.max_tier.id,
-                    'tiers': [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
+                    'min_tier': searching_arena.min_tier.discord_id,
+                    'max_tier': searching_arena.max_tier.discord_id,
+                    'tiers': [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
                 })            
             return Response(response_body, status=status.HTTP_200_OK)
         
@@ -285,6 +288,21 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
         arena.add_player(player, status="INVITED")
         return Response(status=status.HTTP_200_OK)
+
+class RegionViewSet(viewsets.ModelViewSet):
+    queryset = Region.objects.all()
+    serializer_class = RegionSerializer
+
+    @action(methods=['post'], detail=False)
+    def import_regions(self, request):
+        roles = request.data['roles']
+
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(id=guild_id)
+
+        guild_regions = Region.objects.filter(guild=guild)
+        
+
 
 
 
@@ -356,13 +374,13 @@ class GuildViewSet(viewsets.ModelViewSet):
         confirmation_arenas = Arena.objects.filter(status="CONFIRMATION")
         confirmation_list = response['confirmation']
         for arena in confirmation_arenas:
-            confirmation_list.append([{'id' : player.id, 'tier': player.tier.name, 'status': player.status()} for player in arena.players.all()])
+            confirmation_list.append([{'id' : player.id, 'tier': player.tier(guild).name, 'status': player.status()} for player in arena.players.all()])
         
         # PLAYING        
         playing_arenas = Arena.objects.filter(status="PLAYING")
         playing_list = response['playing']
         for arena in playing_arenas:
-            playing_list.append([{'id' : ap.player.id, 'tier': ap.player.tier.name, 'status': ap.status} 
+            playing_list.append([{'id' : ap.player.id, 'tier': ap.player.tier(guild).name, 'status': ap.status} 
                 for ap in arena.arenaplayer_set.filter(status="PLAYING").all()])
         
         return Response(response, status=status.HTTP_200_OK)        
@@ -479,8 +497,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
         # Search players, and parse
         arenas = host.search(min_tier, max_tier, guild, invite=True).all()        
         players = [arena.created_by for arena in arenas if arena.created_by.status() != "INVITED"]
-        players.sort(key=lambda player: player.tier.weight, reverse=True)
-        players = [{'id': player.id, 'tier': player.tier.name} for player in players]
+        players.sort(key=lambda player: player.tier(guild).weight, reverse=True)
+        players = [{'id': player.id, 'tier': player.tier(guild).name} for player in players]
 
         return Response({'players': players, 'hosts': hosts}, status=status.HTTP_200_OK)    
 
@@ -490,7 +508,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         force_tier = request.data.get('force_tier', False)
         
         # Get player tier
-        tier_roles = Tier.objects.filter(pk__in=roles)
+        tier_roles = Tier.objects.filter(discord_id__in=roles)
         
         if not tier_roles:
             return Response({"cant_join":"NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)
@@ -505,10 +523,9 @@ class ArenaViewSet(viewsets.ModelViewSet):
         except Player.DoesNotExist as e:                        
             player_data = {
                 'id' : player_id,
-                'name' : player_name,
-                'tier' : player_tier.id
+                'name' : player_name,                
             }
-            player_serializer = PlayerSerializer(data=player_data)
+            player_serializer = PlayerSerializer(data=player_data, context={'tier' : player_tier.discord_id})
             if player_serializer.is_valid():
                 player = player_serializer.save()
             else:
@@ -516,7 +533,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         
         # Check if can search
         player_status = player.status()
-
+                
         if player_status in ArenaPlayer.CANT_JOIN_STATUS:            
             return Response({"cant_join" : player_status}, status=status.HTTP_409_CONFLICT)
 
@@ -525,8 +542,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
         max_tier = min_tier if force_tier else player_tier
         
         data = request.data.copy()
-        data['min_tier'] = min_tier.id
-        data['max_tier'] = max_tier.id
+        data['min_tier'] = min_tier.discord_id
+        data['max_tier'] = max_tier.discord_id
         
         # Update search
         old_arena = None
@@ -544,7 +561,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 return Response({"cant_join" : "ALREADY_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
             
             # Partial update
-            old_serializer = ArenaSerializer(old_arena, data={'min_tier' : min_tier.id, 'max_tier' : max_tier.id}, partial=True)
+            old_serializer = ArenaSerializer(old_arena, data={'min_tier' : min_tier.discord_id, 'max_tier' : max_tier.discord_id}, partial=True)
             if old_serializer.is_valid():
                 old_serializer.save()
             else:
@@ -556,7 +573,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         except Arena.DoesNotExist:
             pass
         
-        arenas = player.search(min_tier, max_tier, guild_id)
+        arenas = player.search(min_tier, max_tier, guild_id)        
 
         if arenas: # Join existing arena
             arena = arenas.first()
@@ -594,8 +611,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
         
         if old_arena: # No match available, just updated search
             response_data = old_serializer.data.copy()
-            response_data['added_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in added_tiers]
-            response_data['removed_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in removed_tiers]
+            response_data['added_tiers'] = [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in added_tiers]
+            response_data['removed_tiers'] = [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in removed_tiers]
 
             # Remove messages from tiers
             removed_messages = []
@@ -615,7 +632,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 response_data["match_found"] = False
                 
                 tiers = Tier.objects.filter(weight__gte=min_tier.weight, weight__lte=max_tier.weight)
-                response_data["added_tiers"] = [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
+                response_data["added_tiers"] = [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
                 response_data["removed_tiers"] = []
             else:
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

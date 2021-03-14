@@ -21,9 +21,9 @@ def make_player(id, name, tier=None):
         tier.player_set.add(player)
     return player
 
-def make_tier(id, name, channel_id, weight):
+def make_tier(discord_id, name, channel_id, weight):
     tier = Tier(
-        id=id,
+        discord_id=discord_id,
         name = name,
         channel_id = channel_id,
         weight = weight
@@ -38,10 +38,10 @@ class ArenaTestCase(TestCase):
         self.razen = make_player(id=45678987654321, name="Razenokis")        
         
         # Setup Tiers
-        self.tier1 = make_tier(id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
-        self.tier2 = make_tier(id=54678987654, name="Tier 2", channel_id=9393938, weight=3)
-        self.tier3 = make_tier(id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
-        self.tier4 = make_tier(id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
+        self.tier1 = make_tier(discord_id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
+        self.tier2 = make_tier(discord_id=54678987654, name="Tier 2", channel_id=9393938, weight=3)
+        self.tier3 = make_tier(discord_id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
+        self.tier4 = make_tier(discord_id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
 
         # Setup Guild
         self.guild = Guild(id=1284839194, spam_channel=183813893, flairing_channel=3814884,
@@ -58,7 +58,7 @@ class ArenaTestCase(TestCase):
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [self.tier2.id] # Tier 2
+            'roles' : [self.tier2.discord_id] # Tier 2
         }
         
         response = client.post('/arenas/', body, format='json')
@@ -67,8 +67,8 @@ class ArenaTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn('id', result)       
         self.assertEqual(result['status'], 'SEARCHING')
-        self.assertEqual(result['max_tier'], self.tier2.id)  # Tier 2
-        self.assertEqual(result['min_tier'], self.tier3.id)  # Tier 3
+        self.assertEqual(result['max_tier'], self.tier2.discord_id)  # Tier 2
+        self.assertEqual(result['min_tier'], self.tier3.discord_id)  # Tier 3
     
     def test_already_searching(self):
         self.test_friendlies_search()
@@ -81,7 +81,7 @@ class ArenaTestCase(TestCase):
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [self.tier2.id] # Tier 2
+            'roles' : [self.tier2.discord_id] # Tier 2
         }
 
         response = client.post('/arenas/', body, format='json')
@@ -99,7 +99,7 @@ class ArenaTestCase(TestCase):
             'min_tier' : self.tier1.channel_id,  # Tier 1 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [self.tier2.id] # Tier 2
+            'roles' : [self.tier2.discord_id] # Tier 2
         }
 
         response = client.post('/arenas/', body, format='json')
@@ -117,7 +117,7 @@ class ArenaTestCase(TestCase):
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [self.tier2.id] # Tier 2
+            'roles' : [self.tier2.discord_id] # Tier 2
         }
 
         body_razenokis = {            
@@ -127,7 +127,7 @@ class ArenaTestCase(TestCase):
             'min_tier' : self.tier2.channel_id,  # Tier 2 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [self.tier1.id] # Tier 1            
+            'roles' : [self.tier1.discord_id] # Tier 1            
         }
         
         search_response = client.post('/arenas/', body_tropped, format='json')
@@ -150,7 +150,7 @@ class ArenaTestCase(TestCase):
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
-            'roles' : [self.tier2.id], # Tier 2
+            'roles' : [self.tier2.discord_id], # Tier 2
             'force_tier': True
         }
 
@@ -158,7 +158,7 @@ class ArenaTestCase(TestCase):
         response = client.post('/arenas/', body, format='json')
         result = json.loads(response.content)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(result.get('added_tiers'), [{'id': self.tier3.id, 'channel': self.tier3.channel_id}])
+        self.assertEqual(result.get('added_tiers'), [{'id': self.tier3.discord_id, 'channel': self.tier3.channel_id}])
         self.assertEqual(result.get('removed_tiers'), [])
         
         # Update search
@@ -167,8 +167,8 @@ class ArenaTestCase(TestCase):
         response = client.post('/arenas/', body, format='json')
         result = json.loads(response.content)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(result.get('added_tiers'), [{'id': self.tier4.id, 'channel': self.tier4.channel_id}])
-        self.assertEqual(result.get('removed_tiers'), [{'id': self.tier3.id, 'channel': self.tier3.channel_id}])
+        self.assertEqual(result.get('added_tiers'), [{'id': self.tier4.discord_id, 'channel': self.tier4.channel_id}])
+        self.assertEqual(result.get('removed_tiers'), [{'id': self.tier3.discord_id, 'channel': self.tier3.channel_id}])
 
     def test_accepted(self):
         client = APIClient()
@@ -253,7 +253,7 @@ class ArenaTestCase(TestCase):
         self.assertEqual(waiting_players[0].status, "WAITING")
 
         # Assert Response
-        CORRECT_TIERS = [{'id': self.tier1.id, 'channel': self.tier1.channel_id}, {'id': self.tier2.id, 'channel': self.tier2.channel_id}]
+        CORRECT_TIERS = [{'id': self.tier1.discord_id, 'channel': self.tier1.channel_id}, {'id': self.tier2.discord_id, 'channel': self.tier2.channel_id}]
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
@@ -301,7 +301,7 @@ class ArenaTestCase(TestCase):
         self.assertEqual(len(waiting_arena.rejected_players.all()), 1)
 
         # Assert Response
-        CORRECT_TIERS = [{'id': self.tier1.id, 'channel': self.tier1.channel_id}, {'id': self.tier2.id, 'channel': self.tier2.channel_id}]
+        CORRECT_TIERS = [{'id': self.tier1.discord_id, 'channel': self.tier1.channel_id}, {'id': self.tier2.discord_id, 'channel': self.tier2.channel_id}]
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
@@ -349,7 +349,7 @@ class ArenaTestCase(TestCase):
         self.assertEqual(len(waiting_arena.rejected_players.all()), 1)
 
         # Assert Response
-        CORRECT_TIERS = [{'id': self.tier2.id, 'channel': self.tier2.channel_id}, {'id': self.tier3.id, 'channel': self.tier3.channel_id}]
+        CORRECT_TIERS = [{'id': self.tier2.discord_id, 'channel': self.tier2.channel_id}, {'id': self.tier3.discord_id, 'channel': self.tier3.channel_id}]
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
@@ -363,11 +363,12 @@ class MessageTestCase(TestCase):
         self.tropped = make_player(id=12345678987654, name="Tropped")
         self.razen = make_player(id=45678987654321, name="Razenokis")        
         
-        # Setup Tiers
-        self.tier1 = make_tier(id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
-        self.tier2 = make_tier(id=54678987654, name="Tier 2", channel_id=9393938, weight=3)
-        self.tier3 = make_tier(id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
-        self.tier4 = make_tier(id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
+        # Setup Tiers        
+
+        # self.tier1 = make_tier(discord_id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
+        # self.tier2 = make_tier(discord_id=54678987654, name="Tier 2", channel_id=9393938, weight=3)
+        # self.tier3 = make_tier(discord_id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
+        # self.tier4 = make_tier(discord_id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
 
         # Setup 1 Arena
         arena_test_case = ArenaTestCase()
@@ -376,10 +377,15 @@ class MessageTestCase(TestCase):
 
         self.arena = Arena.objects.first()        
 
+        self.tier1 = Tier.objects.get(discord_id=45678987654)
+        self.tier2 = Tier.objects.get(discord_id=54678987654)
+        self.tier3 = Tier.objects.get(discord_id=54678987655)
+        self.tier4 = Tier.objects.get(discord_id=54678987656)
+
         # Setup Messages
-        self.message1 = {'id': 17414131341, 'tier': self.tier3.id, 'arena': self.arena.id}
-        self.message2 = {'id': 81548391843, 'tier': self.tier2.id, 'arena': self.arena.id}
-        self.message3 = {'id': 58348334186, 'tier': self.tier1.id, 'arena': self.arena.id}
+        self.message1 = {'id': 17414131341, 'tier': self.tier3.discord_id, 'arena': self.arena.id}
+        self.message2 = {'id': 81548391843, 'tier': self.tier2.discord_id, 'arena': self.arena.id}
+        self.message3 = {'id': 58348334186, 'tier': self.tier1.discord_id, 'arena': self.arena.id}
     
     def test_create(self):
         client = APIClient()
