@@ -37,8 +37,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
         """
         Updates the role of the player. Can be of many types:
             - character (main or second)
-            - region
-            - tier pings
+            - region            
         """
         player = self.get_object()
         role_type = request.data['role_type']
@@ -46,9 +45,11 @@ class PlayerViewSet(viewsets.ModelViewSet):
         
         guild_id = request.data['guild']        
         guild = Guild.objects.get(id=guild_id)
+        ROLE_MESSAGE_TIME = guild.role_message_time
 
         action = None
         role = None
+        
         
         # GET ROLE
         if role_type == "region":
@@ -61,14 +62,14 @@ class PlayerViewSet(viewsets.ModelViewSet):
             else:                
                 role = Character.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)).first()
         else:
-            return Response({'bad_type': "BAD_ROLE_TYPE"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'bad_type': "BAD_ROLE_TYPE", 'role_message_time': ROLE_MESSAGE_TIME}, status=status.HTTP_400_BAD_REQUEST)
         
-        if role is None:           
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        if role is None:
+            return Response({'role_message_time': ROLE_MESSAGE_TIME}, status=status.HTTP_404_NOT_FOUND)
         
         # ADD OR REMOVE ROLE
         if role_type == "region": # REGIONS
-            if role.player_set.filter(player=player).exists():
+            if role.player_set.filter(id=player.id).exists():
                 action = "REMOVE"
                 role.player_set.remove(player)
             else:
@@ -86,24 +87,30 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 
                 new_main = {
                     'status': role_type.upper(),
-                    'player': player,
-                    'character': role,
-                    'guild': guild,
+                    'player': player.id,
+                    'character': role.id,                    
                 }
-                serializer = MainSerializer(data=new_main)
+                
+                serializer = MainSerializer(data=new_main, context={'guild': guild})
                 if serializer.is_valid():
                     serializer.save()
                 else:
-                    print(serializer.errors)
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)                
+                    mains = serializer.context.get('mains')
+                    if mains:
+                        errors = {
+                            'mains': serializer.context['mains']               
+                        }
+                    else:
+                        errors = serializer.errors
+                    
+                    errors['role_message_time'] = ROLE_MESSAGE_TIME                    
+                    return Response(errors, status=status.HTTP_400_BAD_REQUEST)                
 
                 if action == "SWAP":
-                    main.first().delete()
+                    main.first().delete()        
         
-        if action in ("ADD", "SWAP"):
-            return Response({'name': role.name, 'action': action}, status=status.HTTP_201_CREATED)
-        if action == "REMOVE":
-            return Response({'name': role.name, 'action': action}, status=status.HTTP_200_OK)
+        return Response({'name': role.name, 'discord_id': role.discord_id, 'action': action, 'role_message_time': ROLE_MESSAGE_TIME},
+            status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def matchmaking(self, request, pk):
@@ -293,16 +300,53 @@ class RegionViewSet(viewsets.ModelViewSet):
     queryset = Region.objects.all()
     serializer_class = RegionSerializer
 
-    @action(methods=['post'], detail=False)
-    def import_regions(self, request):
+    @action(methods=['post'], detail=False, url_path="import")
+    def import_regions(self, request):        
         roles = request.data['roles']
 
+        # Get Guild and Roles
         guild_id = request.data['guild']
         guild = Guild.objects.get(id=guild_id)
-
-        guild_regions = Region.objects.filter(guild=guild)
         
+        region_roles = [role for role in roles if role['name'] in SPANISH_REGIONS]
+        
+        # Create (or update) the region roles
+        count = 0
+        for role in region_roles:
+            region, created = Region.objects.update_or_create(name=role['name'], guild=guild,
+                                defaults={
+                                    'discord_id': role['id']
+                                })
+            if created:
+                count += 1
 
+        return Response({'count': count}, status=status.HTTP_200_OK)
+
+class CharacterViewSet(viewsets.ModelViewSet):
+    queryset = Character.objects.all()
+    serializer_class = CharacterSerializer
+
+    @action(methods=['post'], detail=False, url_path="import")
+    def import_characters(self, request):        
+        roles = request.data['roles']
+
+        # Get Guild and Roles
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(id=guild_id)
+        
+        char_roles = [role for role in roles if role['name'] in SMASH_CHARACTERS]
+        
+        # Create (or update) the region roles
+        count = 0
+        for role in char_roles:
+            char, created = Character.objects.update_or_create(name=role['name'], guild=guild,
+                                defaults={
+                                    'discord_id': role['id']
+                                })
+            if created:
+                count += 1
+
+        return Response({'count': count}, status=status.HTTP_200_OK)
 
 
 

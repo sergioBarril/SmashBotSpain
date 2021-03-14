@@ -2,6 +2,7 @@ import discord
 import asyncio
 import unicodedata
 import aiohttp
+import json
 
 
 from discord.ext import tasks, commands
@@ -10,6 +11,8 @@ from .params.flairing_params import (REGIONS, CHARACTERS, NORMALIZED_CHARACTERS,
 from .params.matchmaking_params import (TIER_NAMES)
 
 from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
+
+from .formatters.text import list_with_and
 
 
 class Flairing(commands.Cog):
@@ -56,7 +59,7 @@ class Flairing(commands.Cog):
 
         role_type = ctx.invoked_with
         if role_type == "set_role":
-            return
+            return            
 
         body = {
             'guild': guild.id,
@@ -65,30 +68,90 @@ class Flairing(commands.Cog):
             'param' : param,
         }
 
-        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/roles/', json=body) as response:
-            # MATCH FOUND OR STARTED SEARCHING
-            if response.status == 201:
+        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/roles/', json=body) as response:            
+            if response.status == 200:
                 html = await response.text()
                 resp_body = json.loads(html)
-
+                
+                # Get params
                 role_name = resp_body['name']
                 action = resp_body['action']
+                role_id = resp_body['discord_id']
+                ROLE_MESSAGE_TIME = resp_body.get('role_message_time', 25)
+
+                role = guild.get_role(role_id)
                 
-                if role_type == "region":
-                    await ctx.send(f"Te he puesto el rol de **{role_name}**.")
+                # Add/Remove role and send message
+                if action == "REMOVE":
+                    await player.remove_roles(role)
+                    await ctx.send(f"Te he quitado el rol de **{role_name}**.", delete_after=ROLE_MESSAGE_TIME)
+                elif role_type == "region":
+                    await player.add_roles(role)
+                    await ctx.send(f"Te he puesto el rol de **{role_name}**.", delete_after=ROLE_MESSAGE_TIME)
                 elif role_type in ('main', 'second', 'pocket'):
                     if action == "ADD":
-                        await ctx.send(f"Te he añadido como {role_type} **{role_name}**.")
+                        await player.add_roles(role)
+                        await ctx.send(f"Te he añadido como {role_type} **{role_name}**.", delete_after=ROLE_MESSAGE_TIME)
                     elif action == "SWAP":
-                        await ctx.send(f"Perfecto, **{role_name}** es ahora tu {role_type}.")                
-            elif response.status == 200:
+                        await ctx.send(f"Perfecto, **{role_name}** es ahora tu {role_type}.", delete_after=ROLE_MESSAGE_TIME)
+
+            elif response.status == 400:
                 html = await response.text()
                 resp_body = json.loads(html)
 
-                role_name = resp_body['name']
-                ctx.send(f"Te he quitado el rol de **{role_name}**.")
+                mains = resp_body.get('mains', [])
+                
+                
+                if mains:
+                    mains_text = list_with_and(mains, bold=True)
+                    await ctx.send(f"Ya tienes {len(mains)} mains: **{mains_text}**. ¡Pon a alguno en seconds o pocket!",
+                        delete_after=ROLE_MESSAGE_TIME)
+                else:
+                    await ctx.send("Error al modificar tus roles.", delete_after=ROLE_MESSAGE_TIME)
+                    return print(resp_body)
+            
+            elif response.status == 404:
+                html = await response.text()
+                if html:
+                    resp_body = json.loads(html)
+                    ROLE_MESSAGE_TIME = resp_body.get('role_message_time', 25)
+                    await ctx.send(f"No he encontrado ningún rol con el nombre de _{param}_... ¿Lo has escrito bien?",
+                        delete_after=ROLE_MESSAGE_TIME)
+                else:
+                    await ctx.send(f"Error al modificar tus roles.", delete_after=ROLE_MESSAGE_TIME)
+    
+    @commands.command(aliases=['import'])
+    async def import_roles(self, ctx, *, role_type=None):
+        guild = ctx.guild
+        all_roles = await guild.fetch_roles()
+
+        body = {
+            'guild' : guild.id,
+            'roles' : [{'id': role.id, 'name': role.name} for role in all_roles]            
+        }
+
+        if role_type.lower() == 'regiones':
+            role_type = 'regions'
+        elif role_type.lower() in ('personajes', 'chars'):
+            role_type = 'characters'        
 
 
+        async with self.bot.session.post(f'http://127.0.0.1:8000/{role_type}/import/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                count = resp_body['count']
+                
+                if role_type == 'regions':
+                    count_text = f"{count} región" if count == 1 else f"{count} regiones"
+                elif role_type == 'characters':
+                    count_text = f"{count} personaje" if count == 1 else f"{count} personajes"
+
+                await ctx.send(f"Se han creado **{count_text}**.")
+            else:
+                await ctx.send(f"Error con el import.")                
+        
     # @commands.command()
     # @commands.check(in_flairing_channel)
     # async def region(self, ctx, *, region_name = None):        

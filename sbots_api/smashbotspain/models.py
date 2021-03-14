@@ -40,7 +40,10 @@ class Region(models.Model):
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
     
     def __str__(self):
-        return self.name 
+        return self.name
+
+    class Meta:
+        unique_together = [['name', 'guild'], ['discord_id']]
 
 class Character(models.Model):
     discord_id = models.BigIntegerField()
@@ -48,7 +51,11 @@ class Character(models.Model):
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
-        return self.name 
+        return self.name
+    
+    class Meta:
+        unique_together = [['name', 'guild'], ['discord_id']]
+
     
 
 @total_ordering

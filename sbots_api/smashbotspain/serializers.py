@@ -31,20 +31,21 @@ class RegionSerializer(serializers.ModelSerializer):
 
 class CharacterSerializer(serializers.ModelSerializer):
     guild = serializers.PrimaryKeyRelatedField(many=False, queryset=Guild.objects.all())
+    player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
 
     class Meta:
         model = Character
         fields = '__all__'
 
 class MainSerializer(serializers.ModelSerializer):
-    player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
-    character = serializers.PrimaryKeyRelatedField(queryset=Character.objects.all())
+    player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
+    character = serializers.PrimaryKeyRelatedField(many=False, queryset=Character.objects.all())
 
     def validate(self, data):
         player = data['player']
         character = data['character']
         status = data['status']
-        guild = data['guild']
+        guild = self.context['guild']
         
         if status not in ('MAIN', 'SECOND', 'POCKET'):
             raise serializers.ValidationError(f"Status inválido")
@@ -53,8 +54,8 @@ class MainSerializer(serializers.ModelSerializer):
         count = len(mains)
         
         if status == "MAIN" and count >= 2:
-            mains_text = list_with_and([main.char.name for main in mains], bold=True)
-            raise serializers.ValidationError(f"Ya tienes {count} mains: **{mains_text}**. ¡Pon a alguno en seconds o pocket!")
+            self.context['mains'] = [main.character.name for main in mains]            
+            raise serializers.ValidationError(f"Ya tienes {count} mains. ¡Pon a alguno en seconds o pocket!")
 
         return data
     
