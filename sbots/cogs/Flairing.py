@@ -61,7 +61,7 @@ class Flairing(commands.Cog):
         if role_type == "set_role":
             return
         if param is None:
-            await ctx.send(f"Así no: simplemente pon `.{role_type} X`, cambiando `X` por el nombre del rol. _(Ej.: `.main palutena`)_",
+            return await ctx.send(f"Así no: simplemente pon `.{role_type} X`, cambiando `X` por el nombre del rol. _(Ej.: `.main palutena`)_",
                 delete_after=25)
 
         body = {
@@ -242,60 +242,50 @@ class Flairing(commands.Cog):
         return await ctx.send(f"**{role.name}** [{member_amount}]:\n```{', '.join([member.nickname() for member in role.members])}```")
 
     
-    @commands.command(aliases=["regiones", "regions", "tiers", "mains"])
+    @commands.command(aliases=["regiones", "regions", "tiers", "mains", "seconds", "pockets"])
     @commands.check(in_spam_channel)
     async def list_role(self, ctx):        
-        # Select roles        
-        mode = ctx.invoked_with
-        if mode == 'list_role':
-            return None
-        if mode == "regions":
-            mode = "regiones"        
+        guild = ctx.guild
         
-        roles = { 
-            "regiones" : self.region_roles,
-            "tiers" : self.tier_roles,
-            "mains" : self.character_roles
+        # Select roles        
+        role_type = ctx.invoked_with
+        if role_type == 'list_role':
+            return None
+        if role_type == "regiones":
+            role_type = "regions"
+
+        body = {
+            'guild': guild.id,
+            'role_type': role_type,
         }
 
-        role_list = [role for role in roles[mode].values() if role.members]        
-        if not role_list:
-            return await ctx.send(f"Nadie tiene un rol de la categoría **{mode.capitalize()}**")
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/roles/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
 
-        # Sort the list
-        if mode == "tiers":
-            role_list.sort(key=lambda role : role.name)
+                roles = resp_body['roles']
+            else:
+                print(response)
+                return await ctx.send("Error, contacta con algún admin")
         
-        elif mode == "regiones" or mode == "mains":
-            role_list.sort(key=lambda role : len(role.members), reverse=True)
+        role_list = [role for role in roles if role['players']]        
+        if not role_list:
+            return await ctx.send(f"Nadie tiene un rol de la categoría **{role_type.capitalize()}**")
+        
+        # member_lists = {role.name : role.members for role in role_list}
 
-        # If showing tiers, show only their true tier, without counting
-        # the role for pings.
-        if mode == "tiers":
-            all_members = []            
-            member_lists = {role.name : [] for role in role_list}
-            
-            for role in role_list[:]:
-                for member in role.members:                    
-                    if member not in all_members:
-                        all_members.append(member)
-                        member_lists[role.name].append(member)
-                
-                if not member_lists[role.name]:
-                    role_list.remove(role)
-        else:
-            member_lists = {role.name : role.members for role in role_list}
-                        
         # Build the message
-        header = f"**__{mode.upper()}__**\n"
+        header = f"**__{role_type.upper()}__**\n"
         messages = []
         
         for role in role_list:
             role_message = ""
-            members = member_lists[role.name]
+            members = [guild.get_member(player_id) for player_id in role['players']]
+            members = [member for member in members if member]
             num_members = len(members)
 
-            role_message += f"**{role.name}** [{num_members}]:\n"
+            role_message += f"**{role['name']}** [{num_members}]:\n"
             role_message += f"```{', '.join([member.nickname() for member in members])}```\n"
             
             messages.append(role_message)
@@ -314,7 +304,6 @@ class Flairing(commands.Cog):
         # Send the message
         for message in full_message:
             await ctx.send(message)
-
 
     @role.error
     async def role_error(self, ctx, error):

@@ -128,6 +128,49 @@ class PlayerViewSet(viewsets.ModelViewSet):
         return Response({'name': role.name, 'discord_id': role.discord_id, 'action': action, 'role_message_time': ROLE_MESSAGE_TIME},
             status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'], url_path="roles")
+    def get_roles(self, request):
+        """
+        Returns a list with all the roles of the chosen type, and every player
+        that has it.        
+        """
+        guild = Guild.objects.get(id=request.data['guild'])
+        role_type = request.data['role_type']        
+        
+        response = [] 
+        role_list = None
+
+        # CHARACTER TYPE FIX
+        if role_type in ("mains", "seconds", "pockets"):
+            role_type = role_type[:-1].upper()
+        
+        CHARACTER_ROLES = ("MAIN", "SECOND", "POCKET")
+        
+        # GET ROLE LIST
+        if role_type == "tiers":
+            role_list = guild.tier_set.order_by('-weight').all()
+        elif role_type == "regions":
+            role_list = guild.region_set.all()
+        elif role_type in CHARACTER_ROLES:
+            role_list = guild.character_set.all()
+        
+        
+        # GET MEMBERS
+        for role in role_list:
+            if role_type in CHARACTER_ROLES:
+                role_members = Player.objects.filter(main__in=role.main_set.filter(status=role_type)).all()
+            else:
+                role_members = role.player_set.all()
+            role_detail = {'name': role.name}
+            role_detail['players'] = [player.id for player in role_members]
+            response.append(role_detail)
+        
+        # SORT RESPONSE
+        if role_type != "tiers":
+            response.sort(key=lambda role : len(role['players']), reverse=True)
+
+        return Response({'roles': response}, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['get'])
     def matchmaking(self, request, pk):
         """
