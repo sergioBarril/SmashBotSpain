@@ -198,33 +198,48 @@ class Flairing(commands.Cog):
 
     @commands.command(aliases=["rol"])
     @commands.check(in_spam_channel)
-    async def role(self, ctx, *, role_name):
-        await ctx.message.delete(delay=60)
-        
+    async def role(self, ctx, *, param):
         # Get role        
+        guild = ctx.guild
+
+        body = {
+            'param': param
+        }
+
         role = None
+        # GET ROLE
+        async with self.bot.session.get(f'http://127.0.0.1:8000/guilds/{guild.id}/role', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                role_id = resp_body['discord_id']
+                role_name = resp_body['name']                
+                role = guild.get_role(role_id)
+            
+            elif response.status == 404:
+                html = await response.text()
+                if html:
+                    resp_body = json.loads(html)                                        
+                    role = discord.utils.get(guild.roles, name=param)                    
+                    if role is None:
+                        return await ctx.send(f"No existe el rol **{param}**... ¿Seguro que lo has escrito bien?")
+                else:
+                    return await ctx.send(f"No se ha encontrado la Guild... contacta con algún admin.")
+            
+            else:
+                print(response)
+                return await ctx.send("Error inesperado. Contacta con algún admin.")                
+
+        if not role:
+            return await ctx.send("Hay una discrepancia entre el bot y el server. Contacta con algún admin, y que lo actualice.")
         
-        role_key = key_format(role_name)
-        character_key = normalize_character(role_name)
-
-        if role_key.capitalize() in self.tier_roles.keys():
-            role = self.tier_roles[role_key.capitalize()]
-        elif role_key in self.region_roles.keys():
-            role = self.region_roles[role_key]        
-        elif character_key:
-            role = self.character_roles[character_key]
-        else:
-            role = discord.utils.get(ctx.guild.roles, name=role_name)
-
-        if role is None:
-            return await ctx.send(f"No existe ese rol... ¿lo has escrito bien?", delete_after=60)    
-
         member_amount = len(role.members)
 
         if member_amount == 0:
-            return await ctx.send(f"No hay nadie con el rol {role.name}.", delete_after=60)
+            return await ctx.send(f"No hay nadie con el rol **{role.name}**.")
                 
-        return await ctx.send(f"**{role.name}** [{member_amount}]:\n```{', '.join([member.nickname() for member in role.members])}```", delete_after=60)
+        return await ctx.send(f"**{role.name}** [{member_amount}]:\n```{', '.join([member.nickname() for member in role.members])}```")
 
     
     @commands.command(aliases=["regiones", "regions", "tiers", "mains"])

@@ -445,6 +445,33 @@ class GuildViewSet(viewsets.ModelViewSet):
         
         return Response(response, status=status.HTTP_200_OK)        
 
+
+    @action(detail=True, methods=['get'])
+    def role(self, request, pk):
+        """
+        Returns the Discord_id of a role, given a text
+        """        
+        guild = self.get_object()
+        
+        param = request.data['param']
+
+        # Get Tiers
+        if role := Tier.objects.filter(guild=guild, name__iexact=param):
+            role = role.first()
+        elif role := Region.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)):
+            role = role.first()
+        elif normalized := normalize_character(param):
+            role = Character.objects.filter(guild=guild, name=normalized).first()
+        elif role := Character.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)):
+            role = role.first()
+        else:
+            role = None
+        
+        if role is None:
+            return Response({'error' : 'NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        return Response({'discord_id': role.discord_id, 'name': role.name}, status=status.HTTP_200_OK)
+
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()
     serializer_class = ArenaSerializer
