@@ -61,6 +61,8 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 role = Character.objects.filter(guild=guild, name=normalized).first()
             else:                
                 role = Character.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)).first()
+        elif role_type == 'tier':
+            role = Tier.objects.filter(name__icontains=param, guild=guild).first()
         else:
             return Response({'bad_type': "BAD_ROLE_TYPE", 'role_message_time': ROLE_MESSAGE_TIME}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -75,7 +77,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
             else:
                 action = "ADD"
                 role.player_set.add(player)
-        else: # CHARACTER MAINS
+        elif role_type in ("main", "second", "pocket"): # CHARACTER MAINS
             if main := Main.objects.filter(player=player, character=role, status=role_type.upper()):
                 action = "REMOVE"
                 main.first().delete()
@@ -108,7 +110,21 @@ class PlayerViewSet(viewsets.ModelViewSet):
 
                 if action == "SWAP":
                     main.first().delete()        
-        
+        elif role_type == 'tier':  # TIER PINGS
+            player_tier = player.tiers.filter(guild=guild).first()
+            error = False
+            if player_tier is None:
+                error = "NO_TIER"
+            if player_tier == role:
+                error = 'SAME_TIER'                
+            elif player_tier < role:
+                error = 'HIGHER_TIER'            
+            
+            if error:                
+                return Response({'tier_error': error, 'discord_id': role.discord_id, 'name': role.name, 'player_tier': player_tier.name,
+                    'role_message_time': ROLE_MESSAGE_TIME},
+                    status=status.HTTP_400_BAD_REQUEST)
+            
         return Response({'name': role.name, 'discord_id': role.discord_id, 'action': action, 'role_message_time': ROLE_MESSAGE_TIME},
             status=status.HTTP_200_OK)
 

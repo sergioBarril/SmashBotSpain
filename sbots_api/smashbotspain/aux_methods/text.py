@@ -7,7 +7,7 @@ def no_accents(text):
     return str(text)
 
 def key_format(text):
-    return no_accents(text.lower())
+    return no_accents(text.lower()) if text else ""
 
 def list_with_and(elements, bold=False, italics=False):
     """
