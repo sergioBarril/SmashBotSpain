@@ -5,9 +5,9 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main
+from smashbotspain.models import Player, Arena, Region, RegionRole, Tier, ArenaPlayer, Message, Guild, Character, CharacterRole, Main
 from smashbotspain.serializers import (PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
-                                        MainSerializer, RegionSerializer, CharacterSerializer)
+                                        MainSerializer, RegionSerializer, RegionRoleSerializer, CharacterSerializer, CharacterRoleSerializer)
 
 from smashbotspain.aux_methods.roles import normalize_character
 from smashbotspain.aux_methods.text import key_format
@@ -23,9 +23,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
     queryset = Player.objects.all()
     serializer_class = PlayerSerializer
     
-    def create(self, request):       
-        region_roles = Region.objects.filter()
-        
+    def create(self, request):        
         serializer = PlayerSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -53,14 +51,17 @@ class PlayerViewSet(viewsets.ModelViewSet):
         
         # GET ROLE
         if role_type == "region":
-            role = Region.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)).first()
-        
+            region = Region.objects.filter(name__unaccent__iexact=key_format(param)).first()
+            if region:
+                role = RegionRole.objects.filter(guild=guild, region=region).first()
         elif role_type in ("main", "second", "pocket"):
             normalized = normalize_character(param)
             if normalized:
-                role = Character.objects.filter(guild=guild, name=normalized).first()
-            else:                
-                role = Character.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)).first()
+                character = Character.objects.filter(name=normalized).first()
+            else:
+                character = Character.objects.filter(name__unaccent__iexact=key_format(param)).first()
+            if character:
+                role = CharacterRole.objects.filter(guild=guild, character=character).first()
         elif role_type == 'tier':
             role = Tier.objects.filter(name__icontains=param, guild=guild).first()
         else:
@@ -78,19 +79,19 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 action = "ADD"
                 role.player_set.add(player)
         elif role_type in ("main", "second", "pocket"): # CHARACTER MAINS
-            if main := Main.objects.filter(player=player, character=role, status=role_type.upper()):
+            if main := Main.objects.filter(player=player, character_role=role, status=role_type.upper()):
                 action = "REMOVE"
                 main.first().delete()
             else:
-                if main := Main.objects.filter(player=player, character=role):
+                if main := Main.objects.filter(player=player, character_role=role):
                     action = "SWAP"
                 else:
-                    action = "ADD"                    
+                    action = "ADD"
                 
                 new_main = {
                     'status': role_type.upper(),
                     'player': player.id,
-                    'character': role.id,                    
+                    'character_role': role.id,
                 }
                 
                 serializer = MainSerializer(data=new_main, context={'guild': guild})
@@ -124,8 +125,18 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 return Response({'tier_error': error, 'discord_id': role.discord_id, 'name': role.name, 'player_tier': player_tier.name,
                     'role_message_time': ROLE_MESSAGE_TIME},
                     status=status.HTTP_400_BAD_REQUEST)
-            
-        return Response({'name': role.name, 'discord_id': role.discord_id, 'action': action, 'role_message_time': ROLE_MESSAGE_TIME},
+        
+        # ROLE NAME:
+        if role_type in ('main', 'second', 'pocket'):
+            name = role.character.name
+            emoji = role.character.emoji
+        elif role_type == "region":
+            name = role.region.name
+            emoji = role.region.emoji
+        else:
+            name = role.name
+            emoji = ""            
+        return Response({'name': name, 'discord_id': role.discord_id, 'emoji': emoji, 'action': action, 'role_message_time': ROLE_MESSAGE_TIME},
             status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path="roles")
@@ -144,24 +155,31 @@ class PlayerViewSet(viewsets.ModelViewSet):
         if role_type in ("mains", "seconds", "pockets"):
             role_type = role_type[:-1].upper()
         
-        CHARACTER_ROLES = ("MAIN", "SECOND", "POCKET")
+        CHARACTER_STATUS = ("MAIN", "SECOND", "POCKET")
         
         # GET ROLE LIST
         if role_type == "tiers":
             role_list = guild.tier_set.order_by('-weight').all()
         elif role_type == "regions":
-            role_list = guild.region_set.all()
-        elif role_type in CHARACTER_ROLES:
-            role_list = guild.character_set.all()
+            role_list = guild.regionrole_set.all()
+        elif role_type in CHARACTER_STATUS:
+            role_list = guild.characterrole_set.all()
         
         
         # GET MEMBERS
         for role in role_list:
-            if role_type in CHARACTER_ROLES:
+            if role_type in CHARACTER_STATUS:
                 role_members = Player.objects.filter(main__in=role.main_set.filter(status=role_type)).all()
             else:
                 role_members = role.player_set.all()
-            role_detail = {'name': role.name}
+            
+            if role_type == "regions":
+                role_detail = {'name' : role.region.name}
+            elif role_type in CHARACTER_STATUS:
+                role_detail = {'name' : role.character.name}
+            else:
+                role_detail = {'name': role.name}
+            
             role_detail['players'] = [player.id for player in role_members]
             response.append(role_detail)
         
@@ -366,24 +384,38 @@ class RegionViewSet(viewsets.ModelViewSet):
         # Get Guild and Roles
         guild_id = request.data['guild']
         guild = Guild.objects.get(id=guild_id)
+
+        # Create (or update) the Smash Regions
+        region_count = 0
+        for region in SPANISH_REGIONS:
+            reg, created = Region.objects.update_or_create(
+                name=region['name'], defaults= {
+                    'emoji': region['emoji']
+            })
+            if created:
+                region_count += 1        
         
-        region_roles = [role for role in roles if role['name'] in SPANISH_REGIONS]
-        
-        # Create (or update) the region roles
-        count = 0
-        for role in region_roles:
-            region, created = Region.objects.update_or_create(name=role['name'], guild=guild,
+        # Create (or update) the Region roles
+        role_count = 0
+        region_names = Region.objects.values_list('name', flat=True).all()
+        region_roles = [role for role in roles if role['name'] in region_names]
+                
+        for role in region_roles:            
+            reg = Region.objects.get(name=role['name'])
+            region_role, created = RegionRole.objects.update_or_create(region=reg, guild=guild,
                                 defaults={
-                                    'discord_id': role['id']
+                                    'region': reg,
+                                    'guild': guild,
+                                    'discord_id': role['id'],
                                 })
             if created:
-                count += 1
+                role_count += 1
 
-        return Response({'count': count}, status=status.HTTP_200_OK)
+        return Response({'count': region_count, 'role_count': role_count}, status=status.HTTP_200_OK)
 
 class CharacterViewSet(viewsets.ModelViewSet):
-    queryset = Character.objects.all()
-    serializer_class = CharacterSerializer
+    queryset = CharacterRole.objects.all()
+    serializer_class = CharacterRoleSerializer
 
     @action(methods=['post'], detail=False, url_path="import")
     def import_characters(self, request):        
@@ -393,19 +425,34 @@ class CharacterViewSet(viewsets.ModelViewSet):
         guild_id = request.data['guild']
         guild = Guild.objects.get(id=guild_id)
         
-        char_roles = [role for role in roles if role['name'] in SMASH_CHARACTERS]
+
+        # Create Smash Characters
+        char_count = 0
+        for character in SMASH_CHARACTERS:
+            char, created = Character.objects.update_or_create(
+                name=character['name'], defaults= {
+                    'emoji': character['emoji']
+            })
+            if created:
+                char_count += 1
+                
+        # Create (or update) the Character roles
+        role_count = 0
+        char_names = Character.objects.values_list('name', flat=True).all()
+        char_roles = [role for role in roles if role['name'] in char_names]        
         
-        # Create (or update) the region roles
-        count = 0
         for role in char_roles:
-            char, created = Character.objects.update_or_create(name=role['name'], guild=guild,
+            character = Character.objects.get(name=role['name'])
+            char_role, created = CharacterRole.objects.update_or_create(character=character, guild=guild,
                                 defaults={
-                                    'discord_id': role['id']
+                                    'character' : character,
+                                    'discord_id': role['id'],
+                                    'guild': guild
                                 })
             if created:
-                count += 1
+                role_count += 1
 
-        return Response({'count': count}, status=status.HTTP_200_OK)
+        return Response({'count': char_count, 'role_count': role_count}, status=status.HTTP_200_OK)
 
 
 
@@ -501,19 +548,22 @@ class GuildViewSet(viewsets.ModelViewSet):
         # Get Tiers
         if role := Tier.objects.filter(guild=guild, name__iexact=param):
             role = role.first()
-        elif role := Region.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)):
+            role_name = role.name
+        elif role := RegionRole.objects.filter(guild=guild, region__name__unaccent__iexact=key_format(param)):
             role = role.first()
+            role_name = role.region.name
         elif normalized := normalize_character(param):
-            role = Character.objects.filter(guild=guild, name=normalized).first()
-        elif role := Character.objects.filter(guild=guild, name__unaccent__iexact=key_format(param)):
+            role = CharacterRole.objects.filter(guild=guild, character__name=normalized).first()
+            role_name = role.character.name
+        elif role := CharacterRole.objects.filter(guild=guild, character__name__unaccent__iexact=key_format(param)):
             role = role.first()
+            role_name = role.character.name
         else:
             role = None
         
         if role is None:
-            return Response({'error' : 'NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
-        
-        return Response({'discord_id': role.discord_id, 'name': role.name}, status=status.HTTP_200_OK)
+            return Response({'error' : 'NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)        
+        return Response({'discord_id': role.discord_id, 'name': role_name}, status=status.HTTP_200_OK)
 
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()

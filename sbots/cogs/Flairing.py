@@ -49,6 +49,15 @@ class Flairing(commands.Cog):
                 self.tier_roles[tier_name] = discord.utils.get(all_roles, name=tier_name)
     
 
+    @commands.command()
+    async def print_emojis(self, ctx):
+        guild = ctx.guild
+
+        emojis = guild.emojis
+        for i, emoji in enumerate(emojis):
+            print(str(emoji))            
+        print(len(emojis))
+
     @commands.command(aliases=["region", "main", "second", "pocket", "tier"])
     @commands.check(in_flairing_channel)
     async def set_role(self, ctx, *, param = None):
@@ -81,6 +90,7 @@ class Flairing(commands.Cog):
                 role_name = resp_body['name']
                 action = resp_body['action']
                 role_id = resp_body['discord_id']
+                emoji = resp_body.get('emoji', "")
                 ROLE_MESSAGE_TIME = resp_body.get('role_message_time', 25)
 
                 role = guild.get_role(role_id)
@@ -90,22 +100,30 @@ class Flairing(commands.Cog):
                         (f"No se ha encontrado el rol **{role_name}** en el servidor, pero en la aplicación sí..."
                         "Habla con un admin.")
                     )             
-                
+
+                #  SET EMOJI TEXT
+                if emoji and role_type in ('main', 'second', 'pocket'):
+                    emoji_text = f' ({emoji})'
+                elif emoji == 'region':
+                    emoji_text = f' {emoji}'
+                else:
+                    emoji_text = ""
+
                 # Add/Remove role and send message
                 if action == "REMOVE":
                     await player.remove_roles(role)
-                    message_text = f"Te he quitado el rol de **{role_name}**."
+                    message_text = f"Te he quitado el rol de **{role_name}**{emoji_text}."
                 # REGIONS
                 elif role_type == "region":
                     await player.add_roles(role)
-                    message_text = f"Te he puesto el rol de **{role_name}**."
+                    message_text = f"Te he puesto el rol de **{role_name}**{emoji_text}."
                 # CHARACTERS
                 elif role_type in ('main', 'second', 'pocket'):
                     if action == "ADD":
                         await player.add_roles(role)
-                        message_text= f"Te he añadido como {role_type} **{role_name}**."
+                        message_text= f"Te he añadido como {role_type} **{role_name}**{emoji_text}."
                     elif action == "SWAP":
-                        message_text = f"Perfecto, **{role_name}** es ahora tu {role_type}."
+                        message_text = f"Perfecto, **{role_name}**{emoji_text} es ahora tu {role_type}."
                 # TIERS
                 elif role_type == 'tier':
                     if role in player.roles:
@@ -186,13 +204,14 @@ class Flairing(commands.Cog):
                 resp_body = json.loads(html)
 
                 count = resp_body['count']
+                role_count = resp_body['role_count']
                 
                 if role_type == 'regions':
                     count_text = f"{count} región" if count == 1 else f"{count} regiones"
                 elif role_type == 'characters':
                     count_text = f"{count} personaje" if count == 1 else f"{count} personajes"
 
-                await ctx.send(f"Se han creado **{count_text}**.")
+                await ctx.send(f"Se han creado **{count_text}** y **{role_count} roles**.")
             else:
                 await ctx.send(f"Error con el import.")
 

@@ -35,29 +35,39 @@ class Guild(models.Model):
     ])    
 
 class Region(models.Model):
-    discord_id = models.BigIntegerField()
-    name = models.CharField(max_length=50)
-    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
-    
+    name = models.CharField(max_length=80)
+    emoji = models.CharField(max_length=50)
+
     def __str__(self):
         return self.name
 
+class RegionRole(models.Model):
+    discord_id = models.BigIntegerField()    
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
+    region = models.ForeignKey(Region, null=True, on_delete=models.CASCADE)
+    
     class Meta:
-        unique_together = [['name', 'guild'], ['discord_id']]
+        unique_together = [['region', 'guild'], ['discord_id']]
 
 class Character(models.Model):
-    discord_id = models.BigIntegerField()
-    name = models.CharField(max_length=30)
-    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
+    name = models.CharField(max_length=80)
+    emoji = models.CharField(max_length=80)
 
     def __str__(self):
         return self.name
+
+class CharacterRole(models.Model):
+    discord_id = models.BigIntegerField()
+    character = models.ForeignKey(Character, null=True, on_delete=models.CASCADE)
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.character.name} role ({self.guild.id})"
     
     class Meta:
-        unique_together = [['name', 'guild'], ['discord_id']]
+        unique_together = [['character', 'guild'], ['discord_id']]
 
     
-
 @total_ordering
 class Tier(models.Model):
     """
@@ -88,8 +98,8 @@ class Player(models.Model):
     id = models.BigIntegerField(primary_key=True)
     name = models.CharField(max_length=90, null=True, blank=True)
     
-    characters = models.ManyToManyField(Character, through="Main", blank=True)
-    regions = models.ManyToManyField(Region, blank=True)
+    character_roles = models.ManyToManyField(CharacterRole, through="Main", blank=True)
+    region_roles = models.ManyToManyField(RegionRole, blank=True)
      
     tiers = models.ManyToManyField(Tier, blank=True)
 
@@ -148,7 +158,7 @@ class Main(models.Model):
     ]
 
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
-    character = models.ForeignKey(Character, on_delete=models.CASCADE)   
+    character_role = models.ForeignKey(CharacterRole, on_delete=models.CASCADE)   
     
     status = models.CharField(max_length=10, choices=MAIN_SECOND)
 

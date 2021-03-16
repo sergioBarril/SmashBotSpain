@@ -9,7 +9,7 @@ def normalize_character(character_name):
     char = key_format(character_name)
 
     if char in NORMALIZED_SMASH_CHARACTERS:
-        return next((character for character in SMASH_CHARACTERS if key_format(character) == char), None)
+        return next((character['name'] for character in SMASH_CHARACTERS if key_format(character['name']) == char), None)
 
     if char in ('dk', 'donkey', 'donkey kong'):
         return 'Donkey Kong'
