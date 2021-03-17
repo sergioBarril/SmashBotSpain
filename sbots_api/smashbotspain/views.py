@@ -30,6 +30,32 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['get'])
+    def profile(self, request, pk):
+        player = self.get_object()
+        guild = Guild.objects.get(id=request.data['guild'])
+        
+        response = {}        
+        
+        # REGIONS
+        region_roles = player.region_roles.filter(guild=guild)
+        response['regions'] = [{'name': region_role.region.name , 'emoji': region_role.region.emoji } for region_role in region_roles]
+
+        # CHARACTERS
+        mains = player.main_set.filter(character_role__guild=guild, status="MAIN")
+        seconds = player.main_set.filter(character_role__guild=guild, status="SECOND")
+        pockets = player.main_set.filter(character_role__guild=guild, status="POCKET")
+
+        response['mains'] = [{'name': role.character_role.character.name, 'emoji' : role.character_role.character.emoji} for role in mains]
+        response['seconds'] = [{'name': role.character_role.character.name, 'emoji' : role.character_role.character.emoji} for role in seconds]
+        response['pockets'] = [{'name': role.character_role.character.name, 'emoji' : role.character_role.character.emoji} for role in pockets]
+
+        # TIER
+        tier = player.tiers.filter(guild=guild).first()
+        response['tier'] = tier.discord_id if tier else None
+
+        return Response(response, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'])
     def roles(self, request, pk):
         """

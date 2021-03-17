@@ -104,7 +104,7 @@ class Flairing(commands.Cog):
                 #  SET EMOJI TEXT
                 if emoji and role_type in ('main', 'second', 'pocket'):
                     emoji_text = f' ({emoji})'
-                elif emoji == 'region':
+                elif emoji and role_type == 'region':
                     emoji_text = f' {emoji}'
                 else:
                     emoji_text = ""
@@ -323,6 +323,79 @@ class Flairing(commands.Cog):
         # Send the message
         for message in full_message:
             await ctx.send(message)
+
+
+    @commands.command(aliases=["perfil"])
+    async def profile(self, ctx):
+        guild = ctx.guild
+        player = ctx.author
+
+        body = {
+            'guild' : guild.id
+        }
+
+        # GET ROLE
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/profile/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                regions = resp_body['regions']
+                
+                mains = resp_body['mains']
+                seconds = resp_body['seconds']
+                pockets = resp_body['pockets']
+
+                tier_id = resp_body['tier']
+            else:
+                return await ctx.send("Error al mostrar el perfil. Contacta con un admin.")        
+        
+        # TIER
+        if tier_id:
+            tier = guild.get_role(tier_id)        
+        tier_text = f" ({tier.name})" if tier_id else ""
+        tier_color = tier.color if tier_id else discord.Colour()
+
+        # REGIONS
+        region_title = "Región:" if len(regions) < 2 else "Regiones:"
+        region_text = ""
+        
+        for region in regions[:2]:
+            region_text += f"{region['name']} {region['emoji']}\n"
+
+        # CHARACTERS
+        main_title = "Main:" if len(mains) < 2 else "Mains:"
+        main_text = ""
+
+        for main in mains:
+            main_text += f"{main['name']} ({main['emoji']})\n"
+        
+        second_title = f"Second:" if len(seconds) < 2 else "Seconds:"
+        second_text = ""
+
+        for second in seconds:
+            second_text += f"{second['emoji']}  "
+        
+        pocket_title = f"Pocket:" if len(pockets) < 2 else "Pockets:"
+        pocket_text = ""
+        for pocket in pockets:
+            pocket_text += f"{pocket['emoji']}  "
+
+        
+        embed = discord.Embed(title=f"**__{player.nickname()}__{tier_text}**", colour=tier_color)
+        embed.set_thumbnail(url=player.avatar_url)
+        embed.set_footer(text="SmashBotSpain", icon_url="https://www.smashbros.com/assets_v2/img/top/hero05_en.jpg")
+
+        if regions:
+            embed.add_field(name=region_title, value=region_text, inline=False)
+        if mains:
+            embed.add_field(name=main_title, value=main_text, inline=False)
+        if seconds:
+            embed.add_field(name=second_title, value=second_text, inline=True)
+        if pockets:
+            embed.add_field(name=pocket_title, value=pocket_text, inline=True)
+        
+        return await ctx.send(embed=embed)
 
     @role.error
     async def role_error(self, ctx, error):
