@@ -371,16 +371,16 @@ class Flairing(commands.Cog):
             main_text += f"{main['name']} ({main['emoji']})\n"
         
         second_title = f"Second:" if len(seconds) < 2 else "Seconds:"
-        second_text = ""
+        second_text = u"\u200C"
 
         for second in seconds:
-            second_text += f"{second['emoji']}  "
+            second_text += f"{second['emoji']}  "        
         
         pocket_title = f"Pocket:" if len(pockets) < 2 else "Pockets:"
-        pocket_text = ""
+        
+        pocket_text = u"\u200C"
         for pocket in pockets:
             pocket_text += f"{pocket['emoji']}  "
-
         
         embed = discord.Embed(title=f"**__{player.nickname()}__{tier_text}**", colour=tier_color)
         embed.set_thumbnail(url=player.avatar_url)
