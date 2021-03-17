@@ -11,10 +11,9 @@ from rest_framework import status
 # Models
 from smashbotspain.models import Arena, Player, ArenaPlayer, Tier, Message, Guild
 
-def make_player(id, name, tier=None):
+def make_player(id, tier=None):
     player = Player(
-        id = id,
-        name = name
+        id = id        
     )
     player.save()
     if tier:
@@ -34,8 +33,8 @@ def make_tier(discord_id, name, channel_id, weight):
 class ArenaTestCase(TestCase):    
     def setUp(self):
         # Setup Players
-        self.tropped = make_player(id=12345678987654, name="Tropped")
-        self.razen = make_player(id=45678987654321, name="Razenokis")        
+        self.tropped = make_player(id=12345678987654)
+        self.razen = make_player(id=45678987654321)        
         
         # Setup Tiers
         self.tier1 = make_tier(discord_id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
@@ -53,8 +52,7 @@ class ArenaTestCase(TestCase):
 
         body = {            
             'guild' : self.guild.id,
-            'created_by' : self.tropped.id,
-            'player_name' : self.tropped.name,
+            'created_by' : self.tropped.id,            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
@@ -76,8 +74,7 @@ class ArenaTestCase(TestCase):
 
         body = {
             'guild' : self.guild.id,
-            'created_by' : self.tropped.id,
-            'player_name' : self.tropped.name,
+            'created_by' : self.tropped.id,            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
@@ -94,8 +91,7 @@ class ArenaTestCase(TestCase):
 
         body = {            
             'guild' : self.guild.id,
-            'created_by' : self.tropped.id,  # Tropped
-            'player_name' : self.tropped.name,
+            'created_by' : self.tropped.id,  # Tropped            
             'min_tier' : self.tier1.channel_id,  # Tier 1 channel
             'max_players' : 2,
             'num_players' : 1,
@@ -112,8 +108,7 @@ class ArenaTestCase(TestCase):
 
         body_tropped = {            
             'guild' : self.guild.id,
-            'created_by' : self.tropped.id, # Tropped
-            'player_name' : self.tropped.name,
+            'created_by' : self.tropped.id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
@@ -122,8 +117,7 @@ class ArenaTestCase(TestCase):
 
         body_razenokis = {            
             'guild' : self.guild.id,
-            'created_by' : self.razen.id, # Razen
-            'player_name' : self.razen.name,
+            'created_by' : self.razen.id, # Razen            
             'min_tier' : self.tier2.channel_id,  # Tier 2 channel
             'max_players' : 2,
             'num_players' : 1,
@@ -145,8 +139,7 @@ class ArenaTestCase(TestCase):
 
         body = {            
             'guild' : self.guild.id,
-            'created_by' : self.tropped.id, # Tropped
-            'player_name' : self.tropped.name,
+            'created_by' : self.tropped.id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'max_players' : 2,
             'num_players' : 1,
@@ -360,8 +353,8 @@ class ArenaTestCase(TestCase):
 class MessageTestCase(TestCase):
     def setUp(self):
         # Setup Players
-        self.tropped = make_player(id=12345678987654, name="Tropped")
-        self.razen = make_player(id=45678987654321, name="Razenokis")        
+        self.tropped = make_player(id=12345678987654)
+        self.razen = make_player(id=45678987654321)        
         
         # Setup Tiers        
 

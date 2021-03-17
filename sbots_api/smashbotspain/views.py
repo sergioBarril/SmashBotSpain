@@ -722,14 +722,12 @@ class ArenaViewSet(viewsets.ModelViewSet):
         player_tier = max(tier_roles, key=lambda role : role.weight)
 
         # Get or create player
-        player_id = request.data['created_by']
-        player_name = request.data['player_name']
+        player_id = request.data['created_by']        
         try:
             player = Player.objects.get(pk=player_id)
         except Player.DoesNotExist as e:                        
             player_data = {
-                'id' : player_id,
-                'name' : player_name,                
+                'id' : player_id                
             }
             player_serializer = PlayerSerializer(data=player_data, context={'tier' : player_tier.discord_id})
             if player_serializer.is_valid():

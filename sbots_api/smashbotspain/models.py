@@ -95,8 +95,7 @@ class Tier(models.Model):
         return min_tier.weight <= self.weight and self.weight <= max_tier.weight
 
 class Player(models.Model):
-    id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=90, null=True, blank=True)
+    id = models.BigIntegerField(primary_key=True)    
     
     character_roles = models.ManyToManyField(CharacterRole, through="Main", blank=True)
     region_roles = models.ManyToManyField(RegionRole, blank=True)
@@ -104,7 +103,7 @@ class Player(models.Model):
     tiers = models.ManyToManyField(Tier, blank=True)
 
     def __str__(self):
-        return f"{self.name}"
+        return f"{self.id}"
     
     def tier(self, guild):
         """

@@ -6,12 +6,11 @@ from smashbotspain.aux_methods.text import list_with_and
 class PlayerSerializer(serializers.ModelSerializer):
     regions = serializers.StringRelatedField(many=True, required=False)
     tiers = serializers.SlugRelatedField(slug_field="discord_id", many=True, queryset=Tier.objects.all(), required=False)
-    character_roles = serializers.StringRelatedField(many=True, required=False)
-    name = serializers.CharField(required=False)
+    character_roles = serializers.StringRelatedField(many=True, required=False)    
 
     class Meta:
         model = Player
-        fields = ('id', 'name', 'character_roles', 'regions', 'tiers', 'tier')
+        fields = ('id', 'character_roles', 'regions', 'tiers')
         depth = 1
     
     def create(self, validated_data):                
