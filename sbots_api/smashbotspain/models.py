@@ -183,8 +183,7 @@ class Arena(models.Model):
     
     max_tier = models.ForeignKey(Tier, null=True, related_name="max_tier", on_delete=models.SET_NULL)
     min_tier = models.ForeignKey(Tier, null=True, related_name="min_tier", on_delete=models.SET_NULL)
-
-    max_players = models.IntegerField(validators=[validators.MinValueValidator(2)], default=2)
+    
     channel_id = models.BigIntegerField(null=True, blank=True)
 
     players = models.ManyToManyField(Player, through="ArenaPlayer", blank=True)

@@ -43,8 +43,7 @@ class Matchmaking(commands.Cog):
         
         body = {
             'guild': ctx.guild.id,            
-            'created_by' : ctx.author.id,
-            'player_name' : ctx.author.nickname(),
+            'created_by' : ctx.author.id,            
             'min_tier' : ctx.channel.id,
             'max_players' : 2,
             'roles' : [role.id for role in player.roles],

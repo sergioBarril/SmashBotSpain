@@ -111,7 +111,7 @@ class ArenaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Arena
-        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'guild', 'created_by', 'max_players', 'players', 'channel_id', 'messages')
+        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'guild', 'created_by', 'players', 'channel_id', 'messages')
 
 class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())
