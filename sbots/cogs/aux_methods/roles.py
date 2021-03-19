@@ -1,133 +1,26 @@
-import unicodedata
-import os
-from dotenv import load_dotenv
+from .text import key_format
+from ..params.roles import SMASH_CHARACTERS, NORMALIZED_SMASH_CHARACTERS
 
-load_dotenv()
-PROD_MODE = os.getenv('PROD_MODE') == "YES"
-
-FLAIRING_CHANNEL_ID = 805889422151122964 if PROD_MODE else 805511941094113291
-SPAM_CHANNEL_ID = 806240906784800808 if PROD_MODE else 806239848612364339
-
-REGIONS = [
-    "Albacete",
-    "Alicante",
-    "Andalucía",
-    "Aragón",
-    "Asturias",
-    "Baleares",
-    "Canarias",
-    "Cantabria",
-    "Catalunya",
-    "Castellón",
-    "Ciudad Real",
-    "Euskadi",
-    "Extremadura",
-    "Galicia",
-    "Guadalajara",
-    "León",
-    "Madrid",
-    "Murcia",
-    "La Rioja",
-    "Salamanca",
-    "Toledo",
-    "Valencia",
-    "Valladolid"
-]
-
-def no_accents(text):
-    text = unicodedata.normalize('NFD', text)\
-        .encode('ascii', 'ignore')\
-        .decode("utf-8")
-    return str(text)
-
-def key_format(text):
-    return no_accents(text.lower())
-
-
-CHARACTERS = [
-    "Mario",
-    "Donkey Kong",
-    "Link",
-    "Samus/Dark Samus",
-    "Yoshi",
-    "Kirby",
-    "Fox",
-    "Pikachu",
-    "Luigi",
-    "Ness",
-    "Captain Falcon",
-    "Jigglypuff",
-    "Peach/Daisy",
-    "Bowser",
-    "Ice Climbers",
-    "Sheik",
-    "Zelda",
-    "Dr. Mario",
-    "Pichu",
-    "Falco",
-    "Marth",
-    "Lucina",
-    "Young Link",
-    "Ganondorf",
-    "Mewtwo",
-    "Roy",
-    "Chrom",
-    "Mr. Game & Watch",
-    "Meta Knight",
-    "Pit/Dark Pit",
-    "Zero Suit Samus",
-    "Wario",
-    "Snake",
-    "Ike",
-    "Pokémon Trainer",
-    "Diddy Kong",
-    "Lucas",
-    "Sonic",
-    "King Dedede",
-    "Olimar",
-    "Lucario",
-    "R.O.B.",
-    "Toon Link",
-    "Wolf",
-    "Villager",
-    "Mega Man",
-    "Wii Fit Trainer",
-    "Rosalina & Luma",
-    "Little Mac",
-    "Greninja",
-    "Mii Swordfighter",
-    "Mii Gunner",
-    "Mii Brawler",
-    "Palutena",
-    "Pac-Man",
-    "Robin",
-    "Shulk",
-    "Bowser Jr.",
-    "Duck Hunt",
-    "Ryu",
-    "Ken",
-    "Cloud",
-    "Corrin",
-    "Bayonetta",
-    "Inkling",
-    "Ridley",
-    "Simon/Richter",
-    "King K. Rool",
-    "Isabelle",
-    "Incineroar",
-    "Piranha Plant",
-    "Joker",
-    "Hero",
-    "Banjo & Kazooie",
-    "Terry",
-    "Byleth",
-    "Min Min",
-    "Steve",
-    "Sephiroth"
-]
-
-NORMALIZED_CHARACTERS = [key_format(character) for character in CHARACTERS]
-
+async def update_or_create_roles(guild, all_roles, all_roles_names, roles, update=False):
+    """
+    Creates or updates the roles in the guild.
+    """
+    created_count = 0
+    updated_count = 0
+    
+    for role_dict in roles:
+        # CREATE
+        if role_dict['name'] not in all_roles_names:
+            new_role = await guild.create_role(name=role_dict['name'], mentionable=True, color=role_dict.get('color', 0))
+            created_count += 1
+        # UPDATE
+        elif update:
+            old_role = next((role for role in all_roles if role.name == role_dict['name']), None)
+            await old_role.edit(name=role_dict['name'], mentionable=True, color=role_dict.get('color', 0))
+            updated_count += 1
+    
+    return created_count, updated_count
+    
 
 def normalize_character(character_name):
     """
@@ -136,8 +29,8 @@ def normalize_character(character_name):
     """
     char = key_format(character_name)
 
-    if char in NORMALIZED_CHARACTERS:
-        return next((character for character in CHARACTERS if key_format(character) == char), None)
+    if char in NORMALIZED_SMASH_CHARACTERS:
+        return next((character['name'] for character in SMASH_CHARACTERS if key_format(character['name']) == char), None)
 
     if char in ('dk', 'donkey', 'donkey kong'):
         return 'Donkey Kong'

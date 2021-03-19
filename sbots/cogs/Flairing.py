@@ -7,47 +7,37 @@ import json
 
 from discord.ext import tasks, commands
 
-from .params.flairing_params import (REGIONS, CHARACTERS, NORMALIZED_CHARACTERS, key_format, normalize_character)
 from .params.matchmaking_params import (TIER_NAMES)
 
 from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
 
 from .formatters.text import list_with_and
-
+from .params.roles import SPANISH_REGIONS, SMASH_CHARACTERS, DEFAULT_TIERS, NORMALIZED_SMASH_CHARACTERS
+from .aux_methods.roles import update_or_create_roles
 
 class Flairing(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.region_roles = {}
-        self.character_roles = {}
-        self.tier_roles = {}
 
-    async def setup_flairing(self, guild):
-        self.guild = guild
-        all_roles = await self.guild.fetch_roles()
+    @commands.command(aliases=["create_roles", "update_roles"])
+    async def setup_roles(self, ctx, role_type=None):
+        guild = ctx.guild
+        mode = ctx.invoked_with
+
+        update = (mode == "update_roles")
+        
+        all_roles = await guild.fetch_roles()
         all_roles_names = [role.name for role in all_roles]
-        
-        for region in REGIONS:
-            if region not in all_roles_names:
-                new_role = await self.guild.create_role(name = region, mentionable = True)
-                self.region_roles[key_format(region)] = new_role
-            else:
-                self.region_roles[key_format(region)] = discord.utils.get(all_roles, name=region)
-        
-        for character in CHARACTERS:
-            if character not in all_roles_names:
-                new_role = await self.guild.create_role(name = character, mentionable = True)
-                self.character_roles[character] = new_role
-            else:
-                self.character_roles[character] = discord.utils.get(all_roles, name=character)
 
-        for tier_name in TIER_NAMES:
-            if tier_name not in all_roles_names:
-                new_role = await self.guild.create_role(name = tier_name, mentionable = True)
-                self.tier_roles[tier_name] = new_role
-            else:
-                self.tier_roles[tier_name] = discord.utils.get(all_roles, name=tier_name)
-    
+        if role_type is None or role_type == "regions":
+            created, updated = await update_or_create_roles(guild, all_roles, all_roles_names, SPANISH_REGIONS, update)
+            await ctx.send(f"Regiones creadas: {created}. Regiones actualizadas (o dejadas igual): {updated}")
+        if role_type is None or role_type == "characters":
+            created, updated = await update_or_create_roles(guild, all_roles, all_roles_names, SMASH_CHARACTERS, update)
+            await ctx.send(f"Personajes creados: {created}. Personajes actualizados (o dejados igual): {updated}")
+        if role_type is None or role_type == "tiers":
+            created, updated = await update_or_create_roles(guild, all_roles, all_roles_names, DEFAULT_TIERS, update)
+            await ctx.send(f"Tiers creadas: {created}. Tiers actualizadas (o dejadas igual): {updated}")        
 
     @commands.command()
     async def print_emojis(self, ctx):
