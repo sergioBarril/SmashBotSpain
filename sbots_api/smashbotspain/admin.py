@@ -5,10 +5,8 @@ from smashbotspain import models
 
 admin.site.register(models.Player)
 admin.site.register(models.Region)
-admin.site.register(models.RegionRole)
 admin.site.register(models.Tier)
 admin.site.register(models.Character)
-admin.site.register(models.CharacterRole)
 admin.site.register(models.Main)
 admin.site.register(models.Arena)
 admin.site.register(models.ArenaPlayer)

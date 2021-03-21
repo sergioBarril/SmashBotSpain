@@ -1,16 +1,16 @@
 from rest_framework import serializers
-from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, CharacterRole, Main, Region, RegionRole
+from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, Main, Region
 
 from smashbotspain.aux_methods.text import list_with_and
 
 class PlayerSerializer(serializers.ModelSerializer):
     regions = serializers.StringRelatedField(many=True, required=False)
     tiers = serializers.SlugRelatedField(slug_field="discord_id", many=True, queryset=Tier.objects.all(), required=False)
-    character_roles = serializers.StringRelatedField(many=True, required=False)    
+    characters = serializers.StringRelatedField(many=True, required=False)
 
     class Meta:
         model = Player
-        fields = ('id', 'character_roles', 'regions', 'tiers')
+        fields = ('id', 'characters', 'regions', 'tiers')
         depth = 1
     
     def create(self, validated_data):                
@@ -21,58 +21,50 @@ class PlayerSerializer(serializers.ModelSerializer):
 
         return new_player
 
-class RegionRoleSerializer(serializers.ModelSerializer):
+class RegionSerializer(serializers.ModelSerializer):
     guild = serializers.PrimaryKeyRelatedField(many=False, queryset=Guild.objects.all())
     player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
     region = serializers.PrimaryKeyRelatedField(many=False, queryset=Region.objects.all())
 
     class Meta:
-        model = RegionRole
-        fields = "__all__"
-
-class RegionSerializer(serializers.ModelSerializer):    
-    class Meta:
         model = Region
         fields = "__all__"
 
-class CharacterSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Character
-        fields = '__all__'
 
-class CharacterRoleSerializer(serializers.ModelSerializer):
+
+class CharacterSerializer(serializers.ModelSerializer):
     guild = serializers.PrimaryKeyRelatedField(many=False, queryset=Guild.objects.all())
     player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
     character = serializers.PrimaryKeyRelatedField(many=False, queryset=Character.objects.all())
 
     class Meta:
-        model = CharacterRole
+        model = Character
         fields = '__all__'
 
 class MainSerializer(serializers.ModelSerializer):
     player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
-    character_role = serializers.PrimaryKeyRelatedField(many=False, queryset=CharacterRole.objects.all())
+    character = serializers.PrimaryKeyRelatedField(many=False, queryset=Character.objects.all())
 
     def validate(self, data):
-        player = data['player']        
+        player = data['player']
         status = data['status']
         guild = self.context['guild']
         
         if status not in ('MAIN', 'SECOND', 'POCKET'):
             raise serializers.ValidationError(f"Status inválido")
         
-        mains =  Main.objects.filter(status=status, player=player, character_role__guild=guild).all()
+        mains =  Main.objects.filter(status=status, player=player, character__guild=guild).all()
         count = len(mains)
         
         if status == "MAIN" and count >= 2:
-            self.context['mains'] = [main.character_role.character.name for main in mains]            
+            self.context['mains'] = [main.character.discord_id for main in mains]            
             raise serializers.ValidationError(f"Ya tienes {count} mains. ¡Pon a alguno en seconds o pocket!")
 
         return data
     
     class Meta:
         model = Main
-        fields = ('id', 'player', 'character_role', 'status')
+        fields = ('id', 'player', 'character', 'status')
 
 
 
@@ -106,7 +98,10 @@ class ArenaSerializer(serializers.ModelSerializer):
         if max_tier is None or min_tier is None:
             return data
         elif max_tier < min_tier:
-            raise serializers.ValidationError(f"Estás intentando unirte a {min_tier.name}, pero eres {max_tier.name}.")
+            self.context['player_tier'] = max_tier.discord_id
+            self.context['wanted_tier'] = min_tier.discord_id
+            raise serializers.ValidationError("HIGHER_TIER")
+            # raise serializers.ValidationError(f"Estás intentando unirte a {min_tier.name}, pero eres {max_tier.name}.")
         return data
 
     class Meta:
@@ -125,7 +120,8 @@ class TierSerializer(serializers.ModelSerializer):
     guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())
     class Meta:
         model = Tier
-        fields = ('discord_id', 'name', 'weight', 'channel_id', 'guild')
+        fields = ('discord_id', 'weight', 'channel_id', 'guild')
+        extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
 
 class MessageSerializer(serializers.ModelSerializer):    
     tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())

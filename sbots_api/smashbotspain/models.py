@@ -35,37 +35,21 @@ class Guild(models.Model):
     ])    
 
 class Region(models.Model):
-    name = models.CharField(max_length=80)
-    emoji = models.CharField(max_length=50)
-
-    def __str__(self):
-        return self.name
-
-class RegionRole(models.Model):
-    discord_id = models.BigIntegerField()    
+    discord_id = models.BigIntegerField()
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
-    region = models.ForeignKey(Region, null=True, on_delete=models.CASCADE)
     
     class Meta:
-        unique_together = [['region', 'guild'], ['discord_id']]
+        unique_together = ['discord_id']
 
 class Character(models.Model):
-    name = models.CharField(max_length=80)
-    emoji = models.CharField(max_length=80)
-
-    def __str__(self):
-        return self.name
-
-class CharacterRole(models.Model):
     discord_id = models.BigIntegerField()
-    character = models.ForeignKey(Character, null=True, on_delete=models.CASCADE)
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
-        return f"{self.character.name} role ({self.guild.id})"
+        return f"Character ({self.discord_id})"
     
     class Meta:
-        unique_together = [['character', 'guild'], ['discord_id']]
+        unique_together = ['discord_id']
 
     
 @total_ordering
@@ -74,14 +58,13 @@ class Tier(models.Model):
     Model for tiers. More weight == better role.
     Tier 1 > Tier 3
     """
-    discord_id = models.BigIntegerField()
-    name = models.CharField(max_length=15)
+    discord_id = models.BigIntegerField()    
     weight = models.IntegerField(default=0)
-    channel_id = models.BigIntegerField()
+    channel_id = models.BigIntegerField(null=True)
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
-        return self.name
+        return f"Tier {self.discord_id} (Weight: {self.weight})"
     
     def __lt__(self, other):
         return self.weight < other.weight
@@ -89,7 +72,7 @@ class Tier(models.Model):
     def __eq__(self, other):
         if not isinstance(other, Tier):
             return False
-        return self.id == other.id
+        return self.discord_id == other.discord_id
     
     def between(self, min_tier, max_tier):
         return min_tier.weight <= self.weight and self.weight <= max_tier.weight
@@ -97,13 +80,12 @@ class Tier(models.Model):
 class Player(models.Model):
     id = models.BigIntegerField(primary_key=True)    
     
-    character_roles = models.ManyToManyField(CharacterRole, through="Main", blank=True)
-    region_roles = models.ManyToManyField(RegionRole, blank=True)
-     
+    characters = models.ManyToManyField(Character, through="Main", blank=True)
+    regions = models.ManyToManyField(Region, blank=True)     
     tiers = models.ManyToManyField(Tier, blank=True)
 
     def __str__(self):
-        return f"{self.id}"
+        return f"Player ({self.id})"
     
     def tier(self, guild):
         """
@@ -123,15 +105,7 @@ class Player(models.Model):
             if ArenaPlayer.objects.filter(player=self, status=status):
                 return status
         return False
-    
-    def can_join(self):
-        """
-        Returns False if player is already playing / confirmation step.
-        True otherwise.
-        """
-        pass
-        # return not arena_player.exists()
-    
+            
     def search(self, min_tier, max_tier, guild, invite=False):
         arenas = Arena.objects.filter(guild=guild)
         arenas = arenas.filter(status="SEARCHING")
@@ -157,9 +131,12 @@ class Main(models.Model):
     ]
 
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
-    character_role = models.ForeignKey(CharacterRole, on_delete=models.CASCADE)   
+    character = models.ForeignKey(Character, on_delete=models.CASCADE)   
     
     status = models.CharField(max_length=10, choices=MAIN_SECOND)
+
+    def __str__(self):
+        return f"{self.player} - {self.status} - {self.character}"
 
 class Arena(models.Model):
     STATUS = [

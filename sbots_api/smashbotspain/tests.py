@@ -20,10 +20,9 @@ def make_player(id, tier=None):
         tier.player_set.add(player)
     return player
 
-def make_tier(discord_id, name, channel_id, weight):
+def make_tier(discord_id, channel_id, weight):
     tier = Tier(
-        discord_id=discord_id,
-        name = name,
+        discord_id=discord_id,        
         channel_id = channel_id,
         weight = weight
     )
@@ -37,10 +36,10 @@ class ArenaTestCase(TestCase):
         self.razen = make_player(id=45678987654321)        
         
         # Setup Tiers
-        self.tier1 = make_tier(discord_id=45678987654, name="Tier 1", channel_id=94939382, weight=4)
-        self.tier2 = make_tier(discord_id=54678987654, name="Tier 2", channel_id=9393938, weight=3)
-        self.tier3 = make_tier(discord_id=54678987655, name="Tier 3", channel_id=4848484, weight=2)
-        self.tier4 = make_tier(discord_id=54678987656, name="Tier 4", channel_id=1231566, weight=1)
+        self.tier1 = make_tier(discord_id=45678987654, channel_id=94939382, weight=4)
+        self.tier2 = make_tier(discord_id=54678987654, channel_id=9393938, weight=3)
+        self.tier3 = make_tier(discord_id=54678987655, channel_id=4848484, weight=2)
+        self.tier4 = make_tier(discord_id=54678987656, channel_id=1231566, weight=1)
 
         # Setup Guild
         self.guild = Guild(id=1284839194, spam_channel=183813893, flairing_channel=3814884,
@@ -53,9 +52,7 @@ class ArenaTestCase(TestCase):
         body = {            
             'guild' : self.guild.id,
             'created_by' : self.tropped.id,            
-            'min_tier' : self.tier3.channel_id,  # Tier 3 channel
-            'max_players' : 2,
-            'num_players' : 1,
+            'min_tier' : self.tier3.channel_id,  # Tier 3 channel            
             'roles' : [self.tier2.discord_id] # Tier 2
         }
         
@@ -75,9 +72,7 @@ class ArenaTestCase(TestCase):
         body = {
             'guild' : self.guild.id,
             'created_by' : self.tropped.id,            
-            'min_tier' : self.tier3.channel_id,  # Tier 3 channel
-            'max_players' : 2,
-            'num_players' : 1,
+            'min_tier' : self.tier3.channel_id,  # Tier 3 channel            
             'roles' : [self.tier2.discord_id] # Tier 2
         }
 
@@ -92,9 +87,7 @@ class ArenaTestCase(TestCase):
         body = {            
             'guild' : self.guild.id,
             'created_by' : self.tropped.id,  # Tropped            
-            'min_tier' : self.tier1.channel_id,  # Tier 1 channel
-            'max_players' : 2,
-            'num_players' : 1,
+            'min_tier' : self.tier1.channel_id,  # Tier 1 channel            
             'roles' : [self.tier2.discord_id] # Tier 2
         }
 
@@ -110,17 +103,13 @@ class ArenaTestCase(TestCase):
             'guild' : self.guild.id,
             'created_by' : self.tropped.id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
-            'max_players' : 2,
-            'num_players' : 1,
             'roles' : [self.tier2.discord_id] # Tier 2
         }
 
         body_razenokis = {            
             'guild' : self.guild.id,
             'created_by' : self.razen.id, # Razen            
-            'min_tier' : self.tier2.channel_id,  # Tier 2 channel
-            'max_players' : 2,
-            'num_players' : 1,
+            'min_tier' : self.tier2.channel_id,  # Tier 2 channel            
             'roles' : [self.tier1.discord_id] # Tier 1            
         }
         
@@ -141,8 +130,6 @@ class ArenaTestCase(TestCase):
             'guild' : self.guild.id,
             'created_by' : self.tropped.id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
-            'max_players' : 2,
-            'num_players' : 1,
             'roles' : [self.tier2.discord_id], # Tier 2
             'force_tier': True
         }

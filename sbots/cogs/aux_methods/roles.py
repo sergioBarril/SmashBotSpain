@@ -1,3 +1,5 @@
+import discord
+
 from .text import key_format
 from ..params.roles import SMASH_CHARACTERS, NORMALIZED_SMASH_CHARACTERS
 
@@ -8,15 +10,22 @@ async def update_or_create_roles(guild, all_roles, all_roles_names, roles, updat
     created_count = 0
     updated_count = 0
     
-    for role_dict in roles:
+    for role_name in roles.keys():        
+        # GET COLOR
+        color_hex = roles[role_name].get('color')
+        if color_hex:
+            color = discord.Color(value=color_hex)
+        else:
+            color = discord.Color.default()
+        
         # CREATE
-        if role_dict['name'] not in all_roles_names:
-            new_role = await guild.create_role(name=role_dict['name'], mentionable=True, color=role_dict.get('color', 0))
+        if role_name not in all_roles_names:
+            new_role = await guild.create_role(name=role_name, mentionable=True, color=color)
             created_count += 1
         # UPDATE
         elif update:
-            old_role = next((role for role in all_roles if role.name == role_dict['name']), None)
-            await old_role.edit(name=role_dict['name'], mentionable=True, color=role_dict.get('color', 0))
+            old_role = next((role for role in all_roles if role.name == role_name), None)
+            await old_role.edit(name=role_name, mentionable=True, color=color)
             updated_count += 1
     
     return created_count, updated_count
@@ -30,7 +39,7 @@ def normalize_character(character_name):
     char = key_format(character_name)
 
     if char in NORMALIZED_SMASH_CHARACTERS:
-        return next((character['name'] for character in SMASH_CHARACTERS if key_format(character['name']) == char), None)
+        return next((char_name for char_name in SMASH_CHARACTERS.keys() if key_format(char_name) == char), None)
 
     if char in ('dk', 'donkey', 'donkey kong'):
         return 'Donkey Kong'
@@ -116,5 +125,33 @@ def normalize_character(character_name):
         return 'Steve'
     if char in ('sefirot', 'sefiroth', 'sephirot'):
         return 'Sephiroth'
+    if char in ('pyra', 'mythra', 'pythra', 'aegis', 'homura', 'hikari', 'homura/hikari'):
+        return 'Pyra/Mythra'
     
     return False
+
+def find_role(param, role_list):
+    """
+    Given a param, this method returns the role 
+    with an "acceptable" name in that list,
+    acceptable meaning lowercase + no accent matching,
+    and for characters some name variations are allowed as well.
+    """
+    key_param = key_format(param)
+    
+    role_dict = {key_format(role.name): role for role in role_list}
+
+    # DIRECTLY:
+    if key_param in role_dict.keys():
+        return role_dict[key_param]
+
+    # CHECK IF TIER ROLE
+    tier_key = f'tier {key_param}'
+    if tier_key in role_dict.keys():
+        return role_dict[tier_key]
+
+    # CHECK IF CHARACTER    
+    if normalized_key := normalize_character(key_param):
+        return role_dict[key_format(normalized_key)]
+
+    return False    
