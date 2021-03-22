@@ -26,7 +26,7 @@ class Matchmaking(commands.Cog):
     
     async def setup_matchmaking(self, guild):
         self.guild = guild
-        self.reset_matchmaking.start()        
+        self.reset_matchmaking.start()
         await self.update_list_message(guild=guild)
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
@@ -36,17 +36,16 @@ class Matchmaking(commands.Cog):
         You can join the list of friendlies with this command.
         """
         # Get player and tier
-        player = ctx.author        
+        player = ctx.author
 
+        guild = ctx.guild
         # Check Force-tier mode:
         is_force_tier = ctx.invoked_with == "friendlies-here"
         
         body = {
-            'guild': ctx.guild.id,            
-            'created_by' : ctx.author.id,
-            'player_name' : ctx.author.nickname(),
-            'min_tier' : ctx.channel.id,
-            'max_players' : 2,
+            'guild': guild.id,            
+            'created_by' : player.id,            
+            'min_tier' : ctx.channel.id,            
             'roles' : [role.id for role in player.roles],
             'force_tier' : is_force_tier
         }
@@ -124,18 +123,26 @@ class Matchmaking(commands.Cog):
                 errors = json.loads(html)
                 
                 error = errors.get("cant_join", False)
+                wanted_tier_id = errors.get('wanted_tier', None)
+                player_tier_id = errors.get('player_tier', None)
                                 
                 error_messages = {
                     "NO_TIER" : "No tienes Tier... Habla con algún admin para que te asigne una.",
-                    "ALREADY_SEARCHING" : f"Pero {player.mention}, ¡si ya estabas en la cola!",
-                    "BAD_TIERS" : f"Intentas colarte en la lista de la {errors.get('wanted_tier')}, pero aún eres de {errors.get('player_tier')}... ¡A seguir mejorando!",
+                    "ALREADY_SEARCHING" : f"Pero {player.mention}, ¡si ya estabas en la cola!",                    
                 }
+
+                if wanted_tier_id and player_tier_id:
+                    wanted_tier = guild.get_role(wanted_tier_id)
+                    player_tier = guild.get_role(player_tier_id)
+
+                    error_messages["BAD_TIERS"] = (
+                        f"Intentas colarte en la lista de la {wanted_tier.name},"
+                        f" pero aún eres de {player_tier.name}... ¡A seguir mejorando!"
+                    )                    
                 
                 if error:
                     error_message = error_messages[error]
-                else:
-                    error_message = "\n".join([error[0] for error in errors.values()])
-                await ctx.send(error_message)
+                    await ctx.send(error_message)
             return
 
     @friendlies.error
@@ -143,7 +150,7 @@ class Matchmaking(commands.Cog):
         if isinstance(error, commands.CheckFailure):
             pass
         else:
-            traceback.print_stack()
+            raise error
 
     @commands.command()
     @commands.check(in_arena)
@@ -196,7 +203,7 @@ class Matchmaking(commands.Cog):
         if isinstance(error, commands.CheckFailure):
             pass
         else:
-            traceback.print_stack()
+            raise error
 
     @commands.command()
     async def cancel(self, ctx):
@@ -280,7 +287,7 @@ class Matchmaking(commands.Cog):
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
         else:
-            traceback.print_stack()
+            raise error
 
 
 
@@ -728,24 +735,6 @@ class Matchmaking(commands.Cog):
         channel = await arenas_category.create_text_channel(new_arena_name)
         
         return channel
-            
-    # async def delete_arenas(self):
-    #     for arena in self.arenas:
-    #         await self.delete_arena(arena)        
-
-    # async def delete_arena(self, arena):
-    #     if arena not in self.arenas:
-    #         return
-        
-        # self.arenas.remove(arena)
-        # self.arena_status.pop(arena.name, None)
-
-        # if arena.name in self.arena_invites.keys():            
-        #     for invite in self.arena_invites[arena.name]:
-        #         invite.cancel()
-        #     self.arena_invites.pop(arena.name, None)
-        
-        # await arena.delete()
   
     # *******************************
     #           L I S T
@@ -760,15 +749,17 @@ class Matchmaking(commands.Cog):
                 resp_body = json.loads(html)
 
                 for tier in resp_body['tiers']:
+                    tier_role = guild.get_role(tier['id'])
                     players = [guild.get_member(player_id) for player_id in tier['players']]
+                    
                     player_names = ", ".join([player.nickname() for player in players])
-                    new_message += f"**{tier['name']}**:\n```{player_names} ```\n"
+                    new_message += f"**{tier_role.name}**:\n```{player_names} ```\n"
                 
                 if resp_body['confirmation']:
                     new_message += "\n**CONFIRMANDO:**\n"
 
                 for arena in resp_body['confirmation']:
-                    player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier'], 'status' : player['status']} for player in arena]
+                    player1, player2 = [{'name' : guild.get_member(player['id']).nickname(), 'tier': guild.get_role(player['tier']).name, 'status' : player['status']} for player in arena]
                     new_message += (
                         f"**[{EMOJI_CONFIRM if player1['status'] == 'ACCEPTED' else EMOJI_HOURGLASS}]  {player1['name']}** ({player1['tier']})"
                         f" vs. **{player2['name']}** ({player2['tier']}) **[{EMOJI_CONFIRM if player2['status'] == 'ACCEPTED' else EMOJI_HOURGLASS}]**\n"
@@ -777,7 +768,7 @@ class Matchmaking(commands.Cog):
                     new_message += "\n**ARENAS:**\n"
                 
                 for arena in resp_body['playing']:                    
-                    players = [{'name' : guild.get_member(player['id']).nickname(), 'tier': player['tier']} for player in arena]
+                    players = [{'name' : guild.get_member(player['id']).nickname(), 'tier': guild.get_role(player['tier']).name} for player in arena]
                     players_text = [f"**{player['name']}** ({player['tier']})" for player in players]
                     new_message += f"{' vs. '.join(players_text)}\n"
 
@@ -794,6 +785,7 @@ class Matchmaking(commands.Cog):
             f"_¡Simplemente reacciona con el emoji del jugador a invitar (solo uno)!_\n")
         
         arena = ctx.channel
+        guild = ctx.guild
 
         body = {'channel': arena.id}
 
@@ -818,11 +810,12 @@ class Matchmaking(commands.Cog):
                 
         # Get player name        
         for player in players:
-            player['name'] = ctx.guild.get_member(player['id']).nickname()
+            player['name'] = guild.get_member(player['id']).nickname()
 
         # Message building
         for i, player in enumerate(players, start=1):
-            message_text += f"{i}. {player['name']} ({player['tier']})\n"        
+            tier = guild.get_role(player['tier'])
+            message_text += f"{i}. {player['name']} ({tier.name})\n"        
         
         message = await arena.send(message_text)
         
@@ -857,7 +850,7 @@ class Matchmaking(commands.Cog):
         if isinstance(error, commands.CheckFailure):
             pass
         else:
-            traceback.print_stack()
+            raise error
 
     # *******************************
     #           C L E A N   U P

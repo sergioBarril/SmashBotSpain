@@ -27,16 +27,15 @@ class SmashBotSpain(commands.Bot):
             f'{self.guild.name}(id: {self.guild.id})'
         )
 
-        matchmaking = self.get_cog('Matchmaking')
-        flairing = self.get_cog('Flairing')
+        matchmaking = self.get_cog('Matchmaking')        
         await matchmaking.setup_matchmaking(guild=self.guild)        
-        await flairing.setup_flairing(guild=self.guild)
         
 intents = discord.Intents.default()  # All but the two privileged ones
 intents.members = True
 
 client = SmashBotSpain(command_prefix=["."], intents=intents)
 client.load_extension("extensions.member_nickname")
+client.load_extension("extensions.role_emoji")
 client.load_extension("cogs.Matchmaking")
 client.load_extension("cogs.HelpCommands")
 client.load_extension("cogs.Flairing")

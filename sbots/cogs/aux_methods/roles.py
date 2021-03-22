@@ -1,133 +1,35 @@
-import unicodedata
-import os
-from dotenv import load_dotenv
+import discord
 
-load_dotenv()
-PROD_MODE = os.getenv('PROD_MODE') == "YES"
+from .text import key_format
+from ..params.roles import SMASH_CHARACTERS, NORMALIZED_SMASH_CHARACTERS
 
-FLAIRING_CHANNEL_ID = 805889422151122964 if PROD_MODE else 805511941094113291
-SPAM_CHANNEL_ID = 806240906784800808 if PROD_MODE else 806239848612364339
-
-REGIONS = [
-    "Albacete",
-    "Alicante",
-    "Andalucía",
-    "Aragón",
-    "Asturias",
-    "Baleares",
-    "Canarias",
-    "Cantabria",
-    "Catalunya",
-    "Castellón",
-    "Ciudad Real",
-    "Euskadi",
-    "Extremadura",
-    "Galicia",
-    "Guadalajara",
-    "León",
-    "Madrid",
-    "Murcia",
-    "La Rioja",
-    "Salamanca",
-    "Toledo",
-    "Valencia",
-    "Valladolid"
-]
-
-def no_accents(text):
-    text = unicodedata.normalize('NFD', text)\
-        .encode('ascii', 'ignore')\
-        .decode("utf-8")
-    return str(text)
-
-def key_format(text):
-    return no_accents(text.lower())
-
-
-CHARACTERS = [
-    "Mario",
-    "Donkey Kong",
-    "Link",
-    "Samus/Dark Samus",
-    "Yoshi",
-    "Kirby",
-    "Fox",
-    "Pikachu",
-    "Luigi",
-    "Ness",
-    "Captain Falcon",
-    "Jigglypuff",
-    "Peach/Daisy",
-    "Bowser",
-    "Ice Climbers",
-    "Sheik",
-    "Zelda",
-    "Dr. Mario",
-    "Pichu",
-    "Falco",
-    "Marth",
-    "Lucina",
-    "Young Link",
-    "Ganondorf",
-    "Mewtwo",
-    "Roy",
-    "Chrom",
-    "Mr. Game & Watch",
-    "Meta Knight",
-    "Pit/Dark Pit",
-    "Zero Suit Samus",
-    "Wario",
-    "Snake",
-    "Ike",
-    "Pokémon Trainer",
-    "Diddy Kong",
-    "Lucas",
-    "Sonic",
-    "King Dedede",
-    "Olimar",
-    "Lucario",
-    "R.O.B.",
-    "Toon Link",
-    "Wolf",
-    "Villager",
-    "Mega Man",
-    "Wii Fit Trainer",
-    "Rosalina & Luma",
-    "Little Mac",
-    "Greninja",
-    "Mii Swordfighter",
-    "Mii Gunner",
-    "Mii Brawler",
-    "Palutena",
-    "Pac-Man",
-    "Robin",
-    "Shulk",
-    "Bowser Jr.",
-    "Duck Hunt",
-    "Ryu",
-    "Ken",
-    "Cloud",
-    "Corrin",
-    "Bayonetta",
-    "Inkling",
-    "Ridley",
-    "Simon/Richter",
-    "King K. Rool",
-    "Isabelle",
-    "Incineroar",
-    "Piranha Plant",
-    "Joker",
-    "Hero",
-    "Banjo & Kazooie",
-    "Terry",
-    "Byleth",
-    "Min Min",
-    "Steve",
-    "Sephiroth"
-]
-
-NORMALIZED_CHARACTERS = [key_format(character) for character in CHARACTERS]
-
+async def update_or_create_roles(guild, all_roles, all_roles_names, roles, update=False):
+    """
+    Creates or updates the roles in the guild.
+    """
+    created_count = 0
+    updated_count = 0
+    
+    for role_name in roles.keys():        
+        # GET COLOR
+        color_hex = roles[role_name].get('color')
+        if color_hex:
+            color = discord.Color(value=color_hex)
+        else:
+            color = discord.Color.default()
+        
+        # CREATE
+        if role_name not in all_roles_names:
+            new_role = await guild.create_role(name=role_name, mentionable=True, color=color)
+            created_count += 1
+        # UPDATE
+        elif update:
+            old_role = next((role for role in all_roles if role.name == role_name), None)
+            await old_role.edit(name=role_name, mentionable=True, color=color)
+            updated_count += 1
+    
+    return created_count, updated_count
+    
 
 def normalize_character(character_name):
     """
@@ -136,8 +38,8 @@ def normalize_character(character_name):
     """
     char = key_format(character_name)
 
-    if char in NORMALIZED_CHARACTERS:
-        return next((character for character in CHARACTERS if key_format(character) == char), None)
+    if char in NORMALIZED_SMASH_CHARACTERS:
+        return next((char_name for char_name in SMASH_CHARACTERS.keys() if key_format(char_name) == char), None)
 
     if char in ('dk', 'donkey', 'donkey kong'):
         return 'Donkey Kong'
@@ -223,5 +125,33 @@ def normalize_character(character_name):
         return 'Steve'
     if char in ('sefirot', 'sefiroth', 'sephirot'):
         return 'Sephiroth'
+    if char in ('pyra', 'mythra', 'pythra', 'aegis', 'homura', 'hikari', 'homura/hikari'):
+        return 'Pyra/Mythra'
     
     return False
+
+def find_role(param, role_list):
+    """
+    Given a param, this method returns the role 
+    with an "acceptable" name in that list,
+    acceptable meaning lowercase + no accent matching,
+    and for characters some name variations are allowed as well.
+    """
+    key_param = key_format(param)
+    
+    role_dict = {key_format(role.name): role for role in role_list}
+
+    # DIRECTLY:
+    if key_param in role_dict.keys():
+        return role_dict[key_param]
+
+    # CHECK IF TIER ROLE
+    tier_key = f'tier {key_param}'
+    if tier_key in role_dict.keys():
+        return role_dict[tier_key]
+
+    # CHECK IF CHARACTER    
+    if normalized_key := normalize_character(key_param):
+        return role_dict[key_format(normalized_key)]
+
+    return False    

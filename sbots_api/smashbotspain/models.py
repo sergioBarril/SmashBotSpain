@@ -29,35 +29,42 @@ class Guild(models.Model):
             validators.MinValueValidator(10)
     ])
 
+    role_message_time = models.IntegerField(default=25,
+        validators=[
+            validators.MinValueValidator(5)
+    ])    
+
 class Region(models.Model):
-    id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=50)
+    discord_id = models.BigIntegerField()
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
     
-    def __str__(self):
-        return self.name 
+    class Meta:
+        unique_together = ['discord_id']
 
 class Character(models.Model):
-    id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=30)        
+    discord_id = models.BigIntegerField()
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
-        return self.name 
+        return f"Character ({self.discord_id})"
+    
+    class Meta:
+        unique_together = ['discord_id']
 
+    
 @total_ordering
 class Tier(models.Model):
     """
     Model for tiers. More weight == better role.
     Tier 1 > Tier 3
     """
-    id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=15)
+    discord_id = models.BigIntegerField()    
     weight = models.IntegerField(default=0)
-    channel_id = models.BigIntegerField()
+    channel_id = models.BigIntegerField(null=True)
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
-        return self.name
+        return f"Tier {self.discord_id} (Weight: {self.weight})"
     
     def __lt__(self, other):
         return self.weight < other.weight
@@ -65,23 +72,28 @@ class Tier(models.Model):
     def __eq__(self, other):
         if not isinstance(other, Tier):
             return False
-        return self.id == other.id
+        return self.discord_id == other.discord_id
     
     def between(self, min_tier, max_tier):
         return min_tier.weight <= self.weight and self.weight <= max_tier.weight
 
 class Player(models.Model):
-    id = models.BigIntegerField(primary_key=True)
-    name = models.CharField(max_length=20, null=True, blank=True)
+    id = models.BigIntegerField(primary_key=True)    
     
-    characters = models.ManyToManyField(Character, through="Main")
-    regions = models.ManyToManyField(Region)
-    
-    tier = models.ForeignKey(Tier, null=True, on_delete=models.SET_NULL)
+    characters = models.ManyToManyField(Character, through="Main", blank=True)
+    regions = models.ManyToManyField(Region, blank=True)     
+    tiers = models.ManyToManyField(Tier, blank=True)
 
     def __str__(self):
-        return f"{self.name} ({self.tier})"
+        return f"Player ({self.id})"
     
+    def tier(self, guild):
+        """
+        Returns the tier of the player in the given guild
+        """
+        return self.tiers.filter(guild=guild).first()
+
+
     def status(self):
         """
         Returns the status of the player
@@ -93,15 +105,7 @@ class Player(models.Model):
             if ArenaPlayer.objects.filter(player=self, status=status):
                 return status
         return False
-    
-    def can_join(self):
-        """
-        Returns False if player is already playing / confirmation step.
-        True otherwise.
-        """
-        pass
-        # return not arena_player.exists()
-    
+            
     def search(self, min_tier, max_tier, guild, invite=False):
         arenas = Arena.objects.filter(guild=guild)
         arenas = arenas.filter(status="SEARCHING")
@@ -122,13 +126,17 @@ class Player(models.Model):
 class Main(models.Model):
     MAIN_SECOND = [
         ('MAIN', 'Main'),
-        ('SECOND', 'Second')
+        ('SECOND', 'Second'),
+        ('POCKET', 'Pocket')
     ]
 
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
     character = models.ForeignKey(Character, on_delete=models.CASCADE)   
     
-    main = models.CharField(max_length=10, choices=MAIN_SECOND)
+    status = models.CharField(max_length=10, choices=MAIN_SECOND)
+
+    def __str__(self):
+        return f"{self.player} - {self.status} - {self.character}"
 
 class Arena(models.Model):
     STATUS = [
@@ -152,8 +160,7 @@ class Arena(models.Model):
     
     max_tier = models.ForeignKey(Tier, null=True, related_name="max_tier", on_delete=models.SET_NULL)
     min_tier = models.ForeignKey(Tier, null=True, related_name="min_tier", on_delete=models.SET_NULL)
-
-    max_players = models.IntegerField(validators=[validators.MinValueValidator(2)], default=2)
+    
     channel_id = models.BigIntegerField(null=True, blank=True)
 
     players = models.ManyToManyField(Player, through="ArenaPlayer", blank=True)

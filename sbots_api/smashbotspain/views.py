@@ -5,8 +5,14 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild
-from smashbotspain.serializers import PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer
+from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main
+from smashbotspain.serializers import (PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
+                                        MainSerializer, RegionSerializer, CharacterSerializer)
+
+from smashbotspain.aux_methods.roles import normalize_character
+from smashbotspain.aux_methods.text import key_format
+
+from smashbotspain.params.roles import SMASH_CHARACTERS, SPANISH_REGIONS
 
 # Create your views here.
 class PlayerViewSet(viewsets.ModelViewSet):
@@ -17,14 +23,180 @@ class PlayerViewSet(viewsets.ModelViewSet):
     queryset = Player.objects.all()
     serializer_class = PlayerSerializer
     
-    def create(self, request):       
-        region_roles = Region.objects.filter()
-        
+    def create(self, request):        
         serializer = PlayerSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get'])
+    def profile(self, request, pk):
+        player = self.get_object()
+        guild = Guild.objects.get(id=request.data['guild'])
+        
+        response = {}        
+        
+        # REGIONS
+        regions = player.regions.filter(guild=guild)
+        response['regions'] = [role.discord_id for role in regions]
+
+        # CHARACTERS
+        mains = player.main_set.filter(character__guild=guild, status="MAIN")
+        seconds = player.main_set.filter(character__guild=guild, status="SECOND")
+        pockets = player.main_set.filter(character__guild=guild, status="POCKET")
+
+        response['mains'] = [role.character.discord_id for role in mains]
+        response['seconds'] = [role.character.discord_id for role in seconds]
+        response['pockets'] = [role.character.discord_id for role in pockets]
+
+        # TIER
+        tier = player.tiers.filter(guild=guild).first()
+        response['tier'] = tier.discord_id if tier else None
+
+        return Response(response, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def roles(self, request, pk):
+        """
+        Updates the role of the player. Can be of many types:
+            - character (main or second)
+            - region
+        """
+        player = self.get_object()
+        role_type = request.data['role_type']
+        
+        role_id = request.data['role_id']        
+        
+        guild_id = request.data['guild']        
+        guild = Guild.objects.get(id=guild_id)
+        ROLE_MESSAGE_TIME = guild.role_message_time
+
+        action = None
+        role = None
+        
+        # GET ROLE
+        if role_type == "region":                        
+            role = Region.objects.filter(guild=guild, discord_id=role_id).first()
+        elif role_type in ("main", "second", "pocket"):            
+            role = Character.objects.filter(guild=guild, discord_id=role_id).first()            
+        elif role_type == 'tier':
+            role = Tier.objects.filter(guild=guild, discord_id=role_id).first()
+        else:
+            return Response({'bad_type': "BAD_ROLE_TYPE", 'role_message_time': ROLE_MESSAGE_TIME}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if role is None:
+            return Response({'role_message_time': ROLE_MESSAGE_TIME}, status=status.HTTP_404_NOT_FOUND)
+        
+        # ADD OR REMOVE ROLE
+        #  REGIONS
+        if role_type == "region":
+            if role.player_set.filter(id=player.id).exists():
+                action = "REMOVE"
+                role.player_set.remove(player)
+            else:
+                action = "ADD"
+                role.player_set.add(player)
+        
+        # CHARACTER MAINS
+        elif role_type in ("main", "second", "pocket"):
+            if main := Main.objects.filter(player=player, character=role, status=role_type.upper()):
+                action = "REMOVE"
+                main.first().delete()
+            else:
+                if main := Main.objects.filter(player=player, character=role):
+                    action = "SWAP"
+                else:
+                    action = "ADD"
+
+                # NEW MAIN CREATION
+                new_main = {
+                    'status': role_type.upper(),
+                    'player': player.id,
+                    'character': role.id,
+                }
+                
+                serializer = MainSerializer(data=new_main, context={'guild': guild})
+                if serializer.is_valid():
+                    serializer.save()
+                else:
+                    mains = serializer.context.get('mains')
+                    if mains:
+                        errors = {
+                            'mains': serializer.context['mains']               
+                        }
+                    else:
+                        errors = serializer.errors
+                    
+                    errors['role_message_time'] = ROLE_MESSAGE_TIME                    
+                    return Response(errors, status=status.HTTP_400_BAD_REQUEST)                
+
+                if action == "SWAP":                    
+                    main.first().delete()        
+        
+        # TIER PINGS
+        elif role_type == 'tier':
+            player_tier = player.tiers.filter(guild=guild).first()
+            error = False
+            if player_tier is None:
+                error = "NO_TIER"
+            if player_tier == role:
+                error = 'SAME_TIER'
+            elif player_tier < role:
+                error = 'HIGHER_TIER'
+            
+            if error:                
+                return Response({'tier_error': error, 'discord_id': role.discord_id, 'player_tier': player_tier.discord_id,
+                    'role_message_time': ROLE_MESSAGE_TIME},
+                    status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({'discord_id': role.discord_id, 'action': action, 'role_message_time': ROLE_MESSAGE_TIME},
+            status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path="roles")
+    def get_roles(self, request):
+        """
+        Returns a list with all the roles of the chosen type, and every player
+        that has it.        
+        """
+        guild = Guild.objects.get(id=request.data['guild'])
+        role_type = request.data['role_type']        
+        
+        response = [] 
+        role_list = None
+
+        # CHARACTER TYPE FIX
+        if role_type in ("mains", "seconds", "pockets"):
+            role_type = role_type[:-1].upper()
+        
+        CHARACTER_STATUS = ("MAIN", "SECOND", "POCKET")
+        
+        # GET ROLE LIST
+        if role_type == "tiers":
+            role_list = guild.tier_set.order_by('-weight').all()
+        elif role_type == "regions":
+            role_list = guild.region_set.all()
+        elif role_type in CHARACTER_STATUS:
+            role_list = guild.character_set.all()
+        
+        
+        # GET MEMBERS
+        for role in role_list:
+            if role_type in CHARACTER_STATUS:
+                role_members = Player.objects.filter(main__in=role.main_set.filter(status=role_type)).all()
+            else:
+                role_members = role.player_set.all()
+            
+            role_detail = {'id': role.discord_id}
+            
+            role_detail['players'] = [player.id for player in role_members]
+            response.append(role_detail)
+        
+        # SORT RESPONSE
+        if role_type != "tiers":
+            response.sort(key=lambda role : len(role['players']), reverse=True)
+
+        return Response({'roles': response}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def matchmaking(self, request, pk):
@@ -34,8 +206,8 @@ class PlayerViewSet(viewsets.ModelViewSet):
         player = self.get_object()
         guild_id = request.data['guild']
 
-        min_tier = Tier.objects.get(id=request.data['min_tier'])
-        max_tier = Tier.objects.get(id=request.data['max_tier'])
+        min_tier = Tier.objects.get(discord_id=request.data['min_tier'])
+        max_tier = Tier.objects.get(discord_id=request.data['max_tier'])
 
         arenas = player.search(min_tier, max_tier, guild_id)
 
@@ -155,9 +327,9 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 response_body.update({
                     'arena_id' : searching_arena.id,
                     'searching_player': searching_arena.created_by.id,
-                    'min_tier': searching_arena.min_tier.id,
-                    'max_tier': searching_arena.max_tier.id,
-                    'tiers': [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
+                    'min_tier': searching_arena.min_tier.discord_id,
+                    'max_tier': searching_arena.max_tier.discord_id,
+                    'tiers': [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
                 })            
             return Response(response_body, status=status.HTTP_200_OK)
         
@@ -210,8 +382,55 @@ class PlayerViewSet(viewsets.ModelViewSet):
         arena.add_player(player, status="INVITED")
         return Response(status=status.HTTP_200_OK)
 
+class RegionViewSet(viewsets.ModelViewSet):
+    queryset = Region.objects.all()
+    serializer_class = RegionSerializer
 
+    @action(methods=['post'], detail=False, url_path="import")
+    def import_regions(self, request):        
+        roles = request.data['roles']
 
+        # Get Guild and Roles
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(id=guild_id)                   
+        
+        # Create (or update) the Region roles
+        role_count = 0                        
+        for role_id in roles:
+            region_role, created = Region.objects.update_or_create(guild=guild, discord_id=role_id, defaults={                                    
+                                    'guild': guild,
+                                    'discord_id': role_id,
+                                })
+            if created:
+                role_count += 1
+
+        return Response({'count': role_count}, status=status.HTTP_200_OK)
+
+class CharacterViewSet(viewsets.ModelViewSet):
+    queryset = Character.objects.all()
+    serializer_class = CharacterSerializer
+
+    @action(methods=['post'], detail=False, url_path="import")
+    def import_characters(self, request):        
+        roles = request.data['roles']
+
+        # Get Guild and Roles
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(id=guild_id)
+        
+        # Create (or update) the Character roles
+        role_count = 0        
+                
+        for role_id in roles:
+            char_role, created = Character.objects.update_or_create(discord_id=role_id, guild=guild,
+                                defaults={                                    
+                                    'discord_id': role_id,
+                                    'guild': guild
+                                })
+            if created:
+                role_count += 1
+
+        return Response({'count': role_count}, status=status.HTTP_200_OK)
 
 class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.all()
@@ -249,8 +468,34 @@ class MessageViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class TierViewSet(viewsets.ModelViewSet):
+    lookup_field = 'discord_id'
     queryset = Tier.objects.all()
-    serializer_class = TierSerializer
+    serializer_class = TierSerializer    
+
+    @action(methods=['patch'], detail=True, )
+
+    @action(methods=['post'], detail=False, url_path="import")
+    def import_tiers(self, request):
+        roles = request.data['roles']
+
+        # Get Guild and Roles
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(id=guild_id)
+        
+        # Create (or update) the Tier roles
+        role_count = 0                        
+        for role in roles:            
+            tier_role, created = Tier.objects.update_or_create(guild=guild, discord_id=role['id'], defaults={                                    
+                                    'guild': guild,
+                                    'discord_id': role['id'],
+                                    'weight': role['weight']
+                                })
+            if created:
+                role_count += 1
+
+        return Response({'count': role_count}, status=status.HTTP_200_OK)
+
+
 
 class GuildViewSet(viewsets.ModelViewSet):
     queryset = Guild.objects.all()
@@ -274,19 +519,19 @@ class GuildViewSet(viewsets.ModelViewSet):
         # TIERS        
         tier_lists = response['tiers']
         for tier in tiers:
-            tier_lists.append({'name' : tier.name, 'players': [arena.created_by.id for arena in searching_arenas
+            tier_lists.append({'id' : tier.discord_id, 'players': [arena.created_by.id for arena in searching_arenas
                                                                 if tier.between(arena.min_tier, arena.max_tier)]})
         # CONFIRMATION
         confirmation_arenas = Arena.objects.filter(status="CONFIRMATION")
         confirmation_list = response['confirmation']
         for arena in confirmation_arenas:
-            confirmation_list.append([{'id' : player.id, 'tier': player.tier.name, 'status': player.status()} for player in arena.players.all()])
+            confirmation_list.append([{'id' : player.id, 'tier': player.tier(guild).discord_id, 'status': player.status()} for player in arena.players.all()])
         
         # PLAYING        
         playing_arenas = Arena.objects.filter(status="PLAYING")
         playing_list = response['playing']
         for arena in playing_arenas:
-            playing_list.append([{'id' : ap.player.id, 'tier': ap.player.tier.name, 'status': ap.status} 
+            playing_list.append([{'id' : ap.player.id, 'tier': ap.player.tier(guild).discord_id, 'status': ap.status} 
                 for ap in arena.arenaplayer_set.filter(status="PLAYING").all()])
         
         return Response(response, status=status.HTTP_200_OK)        
@@ -403,8 +648,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
         # Search players, and parse
         arenas = host.search(min_tier, max_tier, guild, invite=True).all()        
         players = [arena.created_by for arena in arenas if arena.created_by.status() != "INVITED"]
-        players.sort(key=lambda player: player.tier.weight, reverse=True)
-        players = [{'id': player.id, 'tier': player.tier.name} for player in players]
+        players.sort(key=lambda player: player.tier(guild).weight, reverse=True)
+        players = [{'id': player.id, 'tier': player.tier(guild).discord_id} for player in players]
 
         return Response({'players': players, 'hosts': hosts}, status=status.HTTP_200_OK)    
 
@@ -414,7 +659,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         force_tier = request.data.get('force_tier', False)
         
         # Get player tier
-        tier_roles = Tier.objects.filter(pk__in=roles)
+        tier_roles = Tier.objects.filter(discord_id__in=roles)
         
         if not tier_roles:
             return Response({"cant_join":"NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)
@@ -422,17 +667,14 @@ class ArenaViewSet(viewsets.ModelViewSet):
         player_tier = max(tier_roles, key=lambda role : role.weight)
 
         # Get or create player
-        player_id = request.data['created_by']
-        player_name = request.data['player_name']
+        player_id = request.data['created_by']        
         try:
             player = Player.objects.get(pk=player_id)
         except Player.DoesNotExist as e:                        
             player_data = {
-                'id' : player_id,
-                'name' : player_name,
-                'tier' : player_tier.id
+                'id' : player_id                
             }
-            player_serializer = PlayerSerializer(data=player_data)
+            player_serializer = PlayerSerializer(data=player_data, context={'tier' : player_tier.discord_id})
             if player_serializer.is_valid():
                 player = player_serializer.save()
             else:
@@ -440,7 +682,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         
         # Check if can search
         player_status = player.status()
-
+                
         if player_status in ArenaPlayer.CANT_JOIN_STATUS:            
             return Response({"cant_join" : player_status}, status=status.HTTP_409_CONFLICT)
 
@@ -449,8 +691,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
         max_tier = min_tier if force_tier else player_tier
         
         data = request.data.copy()
-        data['min_tier'] = min_tier.id
-        data['max_tier'] = max_tier.id
+        data['min_tier'] = min_tier.discord_id
+        data['max_tier'] = max_tier.discord_id
         
         # Update search
         old_arena = None
@@ -468,19 +710,19 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 return Response({"cant_join" : "ALREADY_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
             
             # Partial update
-            old_serializer = ArenaSerializer(old_arena, data={'min_tier' : min_tier.id, 'max_tier' : max_tier.id}, partial=True)
+            old_serializer = ArenaSerializer(old_arena, data={'min_tier' : min_tier.discord_id, 'max_tier' : max_tier.discord_id}, partial=True)
             if old_serializer.is_valid():
                 old_serializer.save()
             else:
                 return Response({"cant_join" : "BAD_TIERS", 
-                    "wanted_tier" : min_tier.name,
-                    "player_tier" : max_tier.name},
+                    "wanted_tier" : min_tier.discord_id,
+                    "player_tier" : max_tier.discord_id},
                 status=status.HTTP_400_BAD_REQUEST)
 
         except Arena.DoesNotExist:
             pass
         
-        arenas = player.search(min_tier, max_tier, guild_id)
+        arenas = player.search(min_tier, max_tier, guild_id)        
 
         if arenas: # Join existing arena
             arena = arenas.first()
@@ -518,8 +760,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
         
         if old_arena: # No match available, just updated search
             response_data = old_serializer.data.copy()
-            response_data['added_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in added_tiers]
-            response_data['removed_tiers'] = [{'id': tier.id, 'channel': tier.channel_id} for tier in removed_tiers]
+            response_data['added_tiers'] = [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in added_tiers]
+            response_data['removed_tiers'] = [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in removed_tiers]
 
             # Remove messages from tiers
             removed_messages = []
@@ -539,8 +781,17 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 response_data["match_found"] = False
                 
                 tiers = Tier.objects.filter(weight__gte=min_tier.weight, weight__lte=max_tier.weight)
-                response_data["added_tiers"] = [{'id': tier.id, 'channel': tier.channel_id} for tier in tiers]
+                response_data["added_tiers"] = [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
                 response_data["removed_tiers"] = []
             else:
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                player_tier = serializer.context.get('player_tier', None)
+                wanted_tier = serializer.context.get('wanted_tier', None)
+
+                errors = {
+                    'cant_join': "BAD_TIERS",
+                    'player_tier': player_tier,
+                    'wanted_tier': wanted_tier,
+                } if player_tier and wanted_tier else serializer.errors
+                
+                return Response(errors, status=status.HTTP_400_BAD_REQUEST)
         return Response(response_data, status=status.HTTP_201_CREATED)
