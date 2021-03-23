@@ -3,6 +3,8 @@ import asyncio
 import unicodedata
 import aiohttp
 import json
+import typing
+
 
 
 from discord.ext import tasks, commands
@@ -415,6 +417,30 @@ class Flairing(commands.Cog):
             pass
         else:
             raise error
+
+    @commands.command()
+    async def tier_channel(self, ctx, tier: typing.Optional[discord.Role], channel: typing.Optional[discord.TextChannel]):
+        """
+        Given a tier and a channel, sets the tier's channel.        
+        """
+        guild = ctx.guild
+
+        if tier is None:
+            return await ctx.send("Para utilizar este comando, escribe `.tier_channel @Tier3 #tier-3`, por ejemplo.")
+        
+        if channel is None:
+            channel = ctx.channel
+
+        body = {'channel_id': channel.id}
+
+        async with self.bot.session.patch(f'http://127.0.0.1:8000/tiers/{tier.id}/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+                await ctx.send(f"Hecho: a partir de ahora el canal de {tier} será {channel.mention}.")
+            else:
+                await ctx.send("Ha habido un error. ¿Quizá ese canal ya lo está usando otra tier?")
+
 
     @list_role.error
     async def list_role_error(self, ctx, error):

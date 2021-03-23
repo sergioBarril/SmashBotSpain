@@ -470,9 +470,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 class TierViewSet(viewsets.ModelViewSet):
     lookup_field = 'discord_id'
     queryset = Tier.objects.all()
-    serializer_class = TierSerializer    
-
-    @action(methods=['patch'], detail=True, )
+    serializer_class = TierSerializer
 
     @action(methods=['post'], detail=False, url_path="import")
     def import_tiers(self, request):
