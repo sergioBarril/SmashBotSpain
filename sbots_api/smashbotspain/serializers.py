@@ -10,8 +10,10 @@ class PlayerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Player
-        fields = ('id', 'characters', 'regions', 'tiers')
+        fields = ('discord_id', 'characters', 'regions', 'tiers', 'url')
         depth = 1
+        lookup_field = 'discord_id'
+        extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
     
     def create(self, validated_data):                
         new_player = Player.objects.create(**validated_data)        
@@ -22,9 +24,7 @@ class PlayerSerializer(serializers.ModelSerializer):
         return new_player
 
 class RegionSerializer(serializers.ModelSerializer):
-    guild = serializers.PrimaryKeyRelatedField(many=False, queryset=Guild.objects.all())
-    player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
-    region = serializers.PrimaryKeyRelatedField(many=False, queryset=Region.objects.all())
+    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())    
 
     class Meta:
         model = Region
@@ -33,17 +33,15 @@ class RegionSerializer(serializers.ModelSerializer):
 
 
 class CharacterSerializer(serializers.ModelSerializer):
-    guild = serializers.PrimaryKeyRelatedField(many=False, queryset=Guild.objects.all())
-    player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
-    character = serializers.PrimaryKeyRelatedField(many=False, queryset=Character.objects.all())
+    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())    
 
     class Meta:
         model = Character
         fields = '__all__'
 
 class MainSerializer(serializers.ModelSerializer):
-    player = serializers.PrimaryKeyRelatedField(many=False, queryset=Player.objects.all())
-    character = serializers.PrimaryKeyRelatedField(many=False, queryset=Character.objects.all())
+    player = serializers.SlugRelatedField(slug_field="discord_id", many=False, queryset=Player.objects.all())
+    character = serializers.SlugRelatedField(slug_field="discord_id", many=False, queryset=Character.objects.all())
 
     def validate(self, data):
         player = data['player']
@@ -69,19 +67,19 @@ class MainSerializer(serializers.ModelSerializer):
 
 
 class ArenaSerializer(serializers.ModelSerializer):    
-    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())
-    created_by = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())    
+    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
+    created_by = serializers.SlugRelatedField(slug_field="discord_id", queryset=Player.objects.all())    
     max_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
     min_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
 
-    players = serializers.PrimaryKeyRelatedField(many=True, required=False, read_only=True)
+    players = serializers.SlugRelatedField(slug_field="discord_id", many=True, required=False, read_only=True)
 
     messages = serializers.PrimaryKeyRelatedField(queryset=Message.objects.all(), required=False)
     
     def create(self, validated_data):
         new_arena = Arena.objects.create(**validated_data)        
         arena_player = {
-            'player': validated_data['created_by'].id,
+            'player': validated_data['created_by'].discord_id,
             'arena' : new_arena.id,
             'status': "WAITING"
         }
@@ -100,8 +98,7 @@ class ArenaSerializer(serializers.ModelSerializer):
         elif max_tier < min_tier:
             self.context['player_tier'] = max_tier.discord_id
             self.context['wanted_tier'] = min_tier.discord_id
-            raise serializers.ValidationError("HIGHER_TIER")
-            # raise serializers.ValidationError(f"Estás intentando unirte a {min_tier.name}, pero eres {max_tier.name}.")
+            raise serializers.ValidationError("HIGHER_TIER")            
         return data
 
     class Meta:
@@ -110,17 +107,18 @@ class ArenaSerializer(serializers.ModelSerializer):
 
 class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())
-    player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
+    player = serializers.SlugRelatedField(slug_field="discord_id", queryset=Player.objects.all())
     
     class Meta:
         model = ArenaPlayer
         fields = ('arena', 'player', 'status')
 
 class TierSerializer(serializers.ModelSerializer):
-    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all())
+    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
     class Meta:
         model = Tier
         fields = ('discord_id', 'weight', 'channel_id', 'guild')
+        lookup_field = 'discord_id'
         extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
 
 class MessageSerializer(serializers.ModelSerializer):    
@@ -130,7 +128,9 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = ('id', 'tier', 'arena')
 
-class GuildSerializer(serializers.ModelSerializer):
+class GuildSerializer(serializers.ModelSerializer):    
     class Meta:
         model = Guild
         fields = '__all__'
+        lookup_field = 'discord_id'
+        extra_kwargs = {'url': {'lookup_field': 'discord_id'}}

@@ -262,7 +262,7 @@ class Flairing(commands.Cog):
         role = find_role(param, guild_roles)
 
         if not role:
-            return ctx.send(f"No existe el rol **{param}**... ¿Seguro que lo has escrito bien?")
+            return await ctx.send(f"No existe el rol **{param}**... ¿Seguro que lo has escrito bien?")
                 
         member_amount = len(role.members)
         if member_amount == 0:

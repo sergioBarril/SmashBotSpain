@@ -8,7 +8,7 @@ from collections import defaultdict
 # Create your models here.
 
 class Guild(models.Model):
-    id = models.BigIntegerField(primary_key=True)
+    discord_id = models.BigIntegerField()
     spam_channel = models.BigIntegerField(null=True, blank=True)
     flairing_channel = models.BigIntegerField(null=True, blank=True)
     list_channel = models.BigIntegerField(null=True, blank=True)
@@ -32,7 +32,10 @@ class Guild(models.Model):
     role_message_time = models.IntegerField(default=25,
         validators=[
             validators.MinValueValidator(5)
-    ])    
+    ])
+
+    class Meta:
+        unique_together = ['discord_id']
 
 class Region(models.Model):
     discord_id = models.BigIntegerField()
@@ -78,14 +81,17 @@ class Tier(models.Model):
         return min_tier.weight <= self.weight and self.weight <= max_tier.weight
 
 class Player(models.Model):
-    id = models.BigIntegerField(primary_key=True)    
+    discord_id = models.BigIntegerField()
     
     characters = models.ManyToManyField(Character, through="Main", blank=True)
     regions = models.ManyToManyField(Region, blank=True)     
     tiers = models.ManyToManyField(Tier, blank=True)
 
+    class Meta:
+        unique_together = ['discord_id']
+
     def __str__(self):
-        return f"Player ({self.id})"
+        return f"Player ({self.discord_id})"
     
     def tier(self, guild):
         """
@@ -183,14 +189,14 @@ class Arena(models.Model):
 
     def get_players(self):
         """
-        Returns a defaultdict with the id of the players by status        
+        Returns a defaultdict with the discord_id of the players by status        
         """
         arena_players = self.arenaplayer_set.all()
 
         players = defaultdict(list)
         
         for ap in arena_players:
-            players[ap.status].append(ap.player.id)
+            players[ap.status].append(ap.player.discord_id)
         
         return players
 

@@ -11,9 +11,9 @@ from rest_framework import status
 # Models
 from smashbotspain.models import Arena, Player, ArenaPlayer, Tier, Message, Guild
 
-def make_player(id, tier=None):
+def make_player(discord_id, tier=None):
     player = Player(
-        id = id        
+        discord_id = discord_id
     )
     player.save()
     if tier:
@@ -31,9 +31,9 @@ def make_tier(discord_id, channel_id, weight):
 
 class ArenaTestCase(TestCase):    
     def setUp(self):
-        # Setup Players
-        self.tropped = make_player(id=12345678987654)
-        self.razen = make_player(id=45678987654321)        
+        # Setup Players        
+        self.tropped = make_player(discord_id=12345678987654)
+        self.razen = make_player(discord_id=45678987654321)        
         
         # Setup Tiers
         self.tier1 = make_tier(discord_id=45678987654, channel_id=94939382, weight=4)
@@ -42,7 +42,7 @@ class ArenaTestCase(TestCase):
         self.tier4 = make_tier(discord_id=54678987656, channel_id=1231566, weight=1)
 
         # Setup Guild
-        self.guild = Guild(id=1284839194, spam_channel=183813893, flairing_channel=3814884,
+        self.guild = Guild(discord_id=1284839194, spam_channel=183813893, flairing_channel=3814884,
             list_channel=1190139, list_message=1949194, match_timeout=90, cancel_time=30, ggs_time=15)
         self.guild.save()
 
@@ -50,8 +50,8 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body = {            
-            'guild' : self.guild.id,
-            'created_by' : self.tropped.id,            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id,            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel            
             'roles' : [self.tier2.discord_id] # Tier 2
         }
@@ -70,8 +70,8 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body = {
-            'guild' : self.guild.id,
-            'created_by' : self.tropped.id,            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id,            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel            
             'roles' : [self.tier2.discord_id] # Tier 2
         }
@@ -85,8 +85,8 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body = {            
-            'guild' : self.guild.id,
-            'created_by' : self.tropped.id,  # Tropped            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id,  # Tropped            
             'min_tier' : self.tier1.channel_id,  # Tier 1 channel            
             'roles' : [self.tier2.discord_id] # Tier 2
         }
@@ -100,15 +100,15 @@ class ArenaTestCase(TestCase):
         client = APIClient()
 
         body_tropped = {            
-            'guild' : self.guild.id,
-            'created_by' : self.tropped.id, # Tropped            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'roles' : [self.tier2.discord_id] # Tier 2
         }
 
         body_razenokis = {            
-            'guild' : self.guild.id,
-            'created_by' : self.razen.id, # Razen            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.razen.discord_id, # Razen            
             'min_tier' : self.tier2.channel_id,  # Tier 2 channel            
             'roles' : [self.tier1.discord_id] # Tier 1            
         }
@@ -120,15 +120,15 @@ class ArenaTestCase(TestCase):
         self.assertEqual(match_response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(result.get('match_found'))
 
-        self.assertEqual(result.get('player_one'), self.tropped.id)
-        self.assertEqual(result.get('player_two'), self.razen.id)
+        self.assertEqual(result.get('player_one'), self.tropped.discord_id)
+        self.assertEqual(result.get('player_two'), self.razen.discord_id)
 
     def test_force_tier(self):
         client = APIClient()
 
         body = {            
-            'guild' : self.guild.id,
-            'created_by' : self.tropped.id, # Tropped            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'roles' : [self.tier2.discord_id], # Tier 2
             'force_tier': True
@@ -166,7 +166,7 @@ class ArenaTestCase(TestCase):
         body = {'accepted': True}
         
         # After one accepts
-        response = client.patch(f'/players/{self.tropped.id}/confirmation/', body, format='json')
+        response = client.patch(f'/players/{self.tropped.discord_id}/confirmation/', body, format='json')
         result = json.loads(response.content)
                 
         arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()        
@@ -179,7 +179,7 @@ class ArenaTestCase(TestCase):
         self.assertEqual(len(ArenaPlayer.objects.all()), 3)
 
         # After the other accepts
-        response = client.patch(f'/players/{self.razen.id}/confirmation/', body, format='json')
+        response = client.patch(f'/players/{self.razen.discord_id}/confirmation/', body, format='json')
         result = json.loads(response.content)
 
         arena_razen = arena.arenaplayer_set.filter(player=self.razen).get()
@@ -220,7 +220,7 @@ class ArenaTestCase(TestCase):
                 
         # After one rejects
         body = {'accepted': False, 'timeout': False}
-        response = client.patch(f'/players/{self.tropped.id}/confirmation/', body, format='json')
+        response = client.patch(f'/players/{self.tropped.discord_id}/confirmation/', body, format='json')
         result = json.loads(response.content)
 
         self.assertIsNone(Arena.objects.filter(id=arena.id).first()) # Arena Deleted
@@ -237,8 +237,8 @@ class ArenaTestCase(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
-        self.assertEqual(result['player_id'], self.tropped.id)
-        self.assertEqual(result['searching_player'], self.razen.id)
+        self.assertEqual(result['player_id'], self.tropped.discord_id)
+        self.assertEqual(result['searching_player'], self.razen.discord_id)
         self.assertEqual(result['tiers'], CORRECT_TIERS)
 
     def test_rejected(self):
@@ -264,7 +264,7 @@ class ArenaTestCase(TestCase):
                 
         # After one rejects
         body = {'accepted': False, 'timeout': False}
-        response = client.patch(f'/players/{self.tropped.id}/confirmation/', body, format='json')
+        response = client.patch(f'/players/{self.tropped.discord_id}/confirmation/', body, format='json')
         result = json.loads(response.content)
 
         self.assertIsNone(Arena.objects.filter(id=arena.id).first()) # Arena Deleted
@@ -285,8 +285,8 @@ class ArenaTestCase(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
-        self.assertEqual(result['player_id'], self.tropped.id)
-        self.assertEqual(result['searching_player'], self.razen.id)
+        self.assertEqual(result['player_id'], self.tropped.discord_id)
+        self.assertEqual(result['searching_player'], self.razen.discord_id)
         self.assertEqual(result['tiers'], CORRECT_TIERS)
 
     def test_rejected_reverse(self):
@@ -312,7 +312,7 @@ class ArenaTestCase(TestCase):
                 
         # After one rejects
         body = {'accepted': False, 'timeout': False}
-        response = client.patch(f'/players/{self.razen.id}/confirmation/', body, format='json')
+        response = client.patch(f'/players/{self.razen.discord_id}/confirmation/', body, format='json')
         result = json.loads(response.content)
 
         self.assertIsNone(Arena.objects.filter(id=waiting_arena.id).first()) # Arena Deleted
@@ -333,15 +333,15 @@ class ArenaTestCase(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
-        self.assertEqual(result['player_id'], self.razen.id)
-        self.assertEqual(result['searching_player'], self.tropped.id)
+        self.assertEqual(result['player_id'], self.razen.discord_id)
+        self.assertEqual(result['searching_player'], self.tropped.discord_id)
         self.assertEqual(result['tiers'], CORRECT_TIERS)
 
 class MessageTestCase(TestCase):
     def setUp(self):
         # Setup Players
-        self.tropped = make_player(id=12345678987654)
-        self.razen = make_player(id=45678987654321)        
+        # self.tropped = make_player(discord_id=12345678987654)
+        # self.razen = make_player(discord_id=45678987654321)
         
         # Setup Tiers        
 
