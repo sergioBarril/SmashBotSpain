@@ -22,6 +22,7 @@ class Flairing(commands.Cog):
         self.bot = bot
 
     @commands.command(aliases=["create_roles", "update_roles"])
+    @commands.has_permissions(administrator=True)
     async def setup_roles(self, ctx, role_type=None):
         guild = ctx.guild
         mode = ctx.invoked_with
@@ -40,18 +41,9 @@ class Flairing(commands.Cog):
         if role_type is None or role_type == "tiers":
             created, updated = await update_or_create_roles(guild, all_roles, all_roles_names, DEFAULT_TIERS, update)
             await ctx.send(f"Tiers creadas: {created}. Tiers actualizadas (o dejadas igual): {updated}")        
-
-    @commands.command()
-    async def print_emojis(self, ctx):
-        guild = ctx.guild
-
-        emojis = guild.emojis
-        for i, emoji in enumerate(emojis):
-            print(str(emoji))            
-        print(len(emojis))
-
+    
     @commands.command(aliases=["region", "main", "second", "pocket", "tier"])
-    @commands.check(in_flairing_channel)
+    @commands.check_any(commands.check(in_flairing_channel), commands.check(in_spam_channel))
     async def set_role(self, ctx, *, param = None):
         player = ctx.author
         guild = ctx.guild
@@ -190,6 +182,7 @@ class Flairing(commands.Cog):
                     return await ctx.send(f"Error al modificar tus roles.", delete_after=ROLE_MESSAGE_TIME)
     
     @commands.command(aliases=['import'])
+    @commands.has_permissions(administrator=True)
     async def import_roles(self, ctx, *, role_type=None):
         guild = ctx.guild
         all_roles = await guild.fetch_roles()
@@ -335,6 +328,7 @@ class Flairing(commands.Cog):
 
 
     @commands.command(aliases=["perfil"])
+    @commands.guild_only()
     async def profile(self, ctx):
         guild = ctx.guild
         player = ctx.author
@@ -415,10 +409,13 @@ class Flairing(commands.Cog):
     async def role_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
         else:
             raise error
 
     @commands.command()
+    @commands.has_permissions(administrator=True)
     async def tier_channel(self, ctx, tier: typing.Optional[discord.Role], channel: typing.Optional[discord.TextChannel]):
         """
         Given a tier and a channel, sets the tier's channel.        
@@ -441,10 +438,20 @@ class Flairing(commands.Cog):
             else:
                 await ctx.send("Ha habido un error. ¿Quizá ese canal ya lo está usando otra tier?")
 
+    @tier_channel.error
+    async def role_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        else:
+            raise error
 
     @list_role.error
     async def list_role_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
             pass
         else:
             raise error        

@@ -149,6 +149,8 @@ class Matchmaking(commands.Cog):
     async def friendlies_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
         else:
             raise error
 
@@ -202,10 +204,13 @@ class Matchmaking(commands.Cog):
     async def ggs_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
         else:
             raise error
 
     @commands.command()
+    @commands.check(in_tier_channel)
     async def cancel(self, ctx):
         player = ctx.author
 
@@ -284,6 +289,8 @@ class Matchmaking(commands.Cog):
     async def invite_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
         else:
@@ -349,6 +356,7 @@ class Matchmaking(commands.Cog):
         async with self.bot.session.post('http://127.0.0.1:8000/messages/', json=body) as response:
             if response.status != 201:
                 print("ERROR CREATING MESSAGES")
+                print(response)
                 return False
         return True
         
@@ -848,6 +856,8 @@ class Matchmaking(commands.Cog):
     @check_tasks.error
     async def check_tasks_error(self, ctx, error):            
         if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
             pass
         else:
             raise error
