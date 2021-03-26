@@ -9,6 +9,7 @@ import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
 import json
+import logging
 
 from discord.ext import tasks, commands
 from discord.ext.commands.cooldowns import BucketType
@@ -17,6 +18,8 @@ from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT,
                     EMOJI_HOURGLASS, NUMBER_EMOJIS)
 
 from .checks.matchmaking_checks import (in_arena, in_tier_channel)
+
+logger = logging.getLogger('discord')
 
 class Matchmaking(commands.Cog):
     
@@ -342,7 +345,7 @@ class Matchmaking(commands.Cog):
                 message = await channel.fetch_message(message_data['id'])
                 edit_tasks.append(message.edit(content=text))
             except discord.NotFound:
-                print(f"Couldn't find message with id {message_data['id']}")
+                logger.error(f"Couldn't find message with id {message_data['id']}")
                 return False            
         
         await asyncio.gather(*edit_tasks)
@@ -356,8 +359,8 @@ class Matchmaking(commands.Cog):
         
         async with self.bot.session.post('http://127.0.0.1:8000/messages/', json=body) as response:
             if response.status != 201:
-                print("ERROR CREATING MESSAGES")
-                print(response)
+                logger.error("ERROR CREATING MESSAGES")
+                logger.error(response)
                 return False
         return True
         
@@ -673,7 +676,8 @@ class Matchmaking(commands.Cog):
                     messages = resp_body.get('messages', [])
                     players = resp_body.get('players', {})
                 else:
-                    print("Error with invite confirmation")
+                    logger.error("Error with invite confirmation")
+                    logger.error(response)            
             
             if is_accepted:
                 await arena.set_permissions(guest, read_messages=True, send_messages=True)
@@ -786,7 +790,7 @@ class Matchmaking(commands.Cog):
 
                 return await list_message.edit(content=new_message)
             else:
-                print("Error")
+                logger.error(f"Error updating the list message")
                 return False        
     
     async def invite_mention_list(self, ctx):        
@@ -879,8 +883,8 @@ class Matchmaking(commands.Cog):
 
                 arenas = resp_body.get('arenas', [])
             else:
-                print(f"({datetime.now()}) ERROR WITH CLEAN_UP")
-                print(response)
+                logger.error("ERROR WITH CLEAN_UP")
+                logger.error(response)
                 return
         
         guild_set = set()        
@@ -903,7 +907,7 @@ class Matchmaking(commands.Cog):
         for guild in guild_set:
             await self.update_list_message(guild=guild)
         
-        print(f"({datetime.now()}) CLEAN UP OK!")
+        logger.info("CLEAN UP OK!")
     
     @reset_matchmaking.before_loop
     async def before_reset_matchmaking(self):

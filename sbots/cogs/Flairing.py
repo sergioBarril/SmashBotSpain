@@ -4,6 +4,7 @@ import unicodedata
 import aiohttp
 import json
 import typing
+import logging
 
 
 
@@ -16,6 +17,8 @@ from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
 from .formatters.text import list_with_and
 from .params.roles import SPANISH_REGIONS, SMASH_CHARACTERS, DEFAULT_TIERS
 from .aux_methods.roles import update_or_create_roles, find_role
+
+logger = logging.getLogger('discord')
 
 class Flairing(commands.Cog):
     def __init__(self, bot):
@@ -160,7 +163,8 @@ class Flairing(commands.Cog):
                 # OTHER ERRORS
                 else:
                     error_text = "Error al modificar tus roles."
-                    return print(resp_body)
+                    logger.error("SET_ROLE ERROR 400")
+                    return logger.error(resp_body)
                 
                 await ctx.send(error_text, delete_after=ROLE_MESSAGE_TIME)
             
@@ -179,6 +183,7 @@ class Flairing(commands.Cog):
 
                     return await ctx.send(f"El rol **{role.name}** no es un rol de {role_type}")
                 else:
+                    logger.error("SET_ROLE ERROR 404")
                     return await ctx.send(f"Error al modificar tus roles.", delete_after=ROLE_MESSAGE_TIME)
     
     @commands.command(aliases=['import'])
@@ -288,7 +293,8 @@ class Flairing(commands.Cog):
 
                 roles = resp_body['roles']
             else:
-                print(response)
+                logger.error("LIST_ROLE ERROR")
+                logger.error(response)
                 return await ctx.send("Error, contacta con algún admin")
         
         role_list = [role for role in roles if role['players']]        
