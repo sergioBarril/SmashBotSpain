@@ -540,6 +540,22 @@ class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()
     serializer_class = ArenaSerializer
 
+    @action(detail=False, methods=['delete'])
+    def clean_up(self, request):
+        """
+        Deletes all arenas. Returns the channels and messages to delete
+        """
+        response = []        
+        arenas = Arena.objects.all()
+
+        for arena in arenas:
+            arena_dict = {'guild': arena.guild.discord_id, 'channel': arena.channel_id,
+                'messages': [{'id': message.id, 'channel': message.tier.channel_id} for message in arena.message_set.all()]}
+            response.append(arena_dict)
+            arena.delete()
+
+        return Response({'arenas': response}, status=status.HTTP_200_OK)
+
     @action(detail=False)
     def playing(self, request):
         playing_arenas = Arena.objects.filter(status="PLAYING")

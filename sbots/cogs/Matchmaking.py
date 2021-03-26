@@ -100,7 +100,7 @@ class Matchmaking(commands.Cog):
                     await ctx.send(f"Vale **{player.nickname()}**, has dejado de buscar en: {tiers_removed_str}.")
                 
                 removed_messages = resp_body.get('removed_messages', [])
-                await self.delete_messages(ctx, removed_messages)
+                await self.delete_messages(guild, removed_messages)
                 await self.update_list_message(guild=ctx.guild)
             
             # STATUS_CONFLICT ERROR
@@ -213,10 +213,11 @@ class Matchmaking(commands.Cog):
     @commands.check(in_tier_channel)
     async def cancel(self, ctx):
         player = ctx.author
+        guild = ctx.guild
 
         body = {
             'player' : player.id,
-            'guild' : ctx.guild.id
+            'guild' : guild.id
         }
         
         async with self.bot.session.post(f'http://127.0.0.1:8000/arenas/cancel/', json=body) as response:
@@ -230,7 +231,7 @@ class Matchmaking(commands.Cog):
                 
                 #  Delete mention messages
                 messages = resp_body.get('messages', [])
-                await self.delete_messages(ctx, messages)
+                await self.delete_messages(guild, messages)
                 
             elif response.status == 400:
                 html = await response.text()
@@ -361,14 +362,14 @@ class Matchmaking(commands.Cog):
         return True
         
     
-    async def delete_messages(self, ctx, messages):
+    async def delete_messages(self, guild, messages):
         if not messages:
             return False
         
         delete_tasks = []        
         
         for message_data in messages:
-            channel = ctx.guild.get_channel(message_data['channel'])            
+            channel = guild.get_channel(message_data['channel'])
             message = await channel.fetch_message(int(message_data['id']))
             delete_tasks.append(message.delete())
         
@@ -867,16 +868,42 @@ class Matchmaking(commands.Cog):
     # *******************************
     @tasks.loop(hours=24)
     async def reset_matchmaking(self):
-        pass
-        # await self.delete_arenas()        
+        """
+        Deletes all open arenas.
+        """
+        # GET ARENAS INFO
+        async with self.bot.session.delete('http://127.0.0.1:8000/arenas/clean_up/') as response:            
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                arenas = resp_body.get('arenas', [])
+            else:
+                print(f"({datetime.now()}) ERROR WITH CLEAN_UP")
+                print(response)
+                return
         
-        # self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
-        # self.confirmation_list = []
-        # self.rejected_list = []
-                
-        # await self.update_list_message()
+        guild_set = set()        
+        for arena in arenas:
+            # GET GUILD
+            guild = self.bot.get_guild(arena['guild'])
+            guild_set.add(guild)
+
+            # DELETE TEXT CHANNEL
+            channel_id = arena['channel']
+            
+            if channel_id:
+                arena_channel = guild.get_channel(channel_id)
+                if arena_channel:
+                    arena_channel.delete()
+            
+            # DELETE MESSAGES
+            await self.delete_messages(guild, arena.get('messages', []))
         
-        # print("Clean up complete")
+        for guild in guild_set:
+            await self.update_list_message(guild=guild)
+        
+        print(f"({datetime.now()}) CLEAN UP OK!")
     
     @reset_matchmaking.before_loop
     async def before_reset_matchmaking(self):
