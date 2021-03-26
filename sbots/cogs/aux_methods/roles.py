@@ -42,13 +42,11 @@ def normalize_character(character_name):
         return next((char_name for char_name in SMASH_CHARACTERS.keys() if key_format(char_name) == char), None)
 
     if char in ('dk', 'donkey', 'donkey kong'):
-        return 'Donkey Kong'
-    if char in ('samus', 'dark samus', 'samus/dark samus', 'upb'):
-        return 'Samus/Dark Samus'
+        return 'Donkey Kong'    
+    if char in ('damus', 'upb'):
+        return 'Dark Samus'
     if char in ('captain falcon', 'capitan falcon', 'falcon'):
-        return 'Captain Falcon'
-    if char in ('peach/daisy', 'peach', 'daisy'):
-        return 'Peach/Daisy'
+        return 'Captain Falcon'    
     if char in ('ice climbers', 'icies', 'ics', 'ic'):
         return 'Ice Climbers'
     if char in ('dr. mario', 'dr.mario', 'doc', 'doctor mario', 'dr mario'):
@@ -60,9 +58,9 @@ def normalize_character(character_name):
     if char in ('gaw', 'mr. game & watch', 'mr. game and watch', 'g&w', 'mr gaw', 'mr. gaw', 'game and watch', 'game & watch', 'game&watch'):
         return 'Mr. Game & Watch'
     if char in ('meta knight', 'metaknight', 'mk', 'metalknight'):
-        return 'Meta Knight'
-    if char in ('pit/dark pit', 'pit', 'dark pit', 'pittoo', 'dpit', 'pit sombrio'):
-        return 'Pit/Dark Pit'
+        return 'Meta Knight'    
+    if char in ('pittoo', 'dpit', 'pit sombrio'):
+        return 'Dark Pit'
     if char in ('zero suit samus', 'zss', 'zzs', 'samus zero'):
         return 'Zero Suit Samus'
     if char in ('pokemon trainer', 'pkmn trainer', 'pokemon', 'charizard', 'ivysaur', 'squirtle'):
@@ -97,7 +95,7 @@ def normalize_character(character_name):
         return 'Palutena'
     if char in ('daraen'):
         return 'Robin'
-    if char in ('bowser jr', 'bowsy', 'larry', 'ludwig', 'lemmy', 'iggy', 'wendy', 'morton', 'roy koopa', 'koopaling', 'koopalings'):
+    if char in ('bowser jr', 'bjr', 'jr', 'bowsy', 'larry', 'ludwig', 'lemmy', 'iggy', 'wendy', 'morton', 'roy koopa', 'koopaling', 'koopalings'):
         return 'Bowser Jr.'
     if char in ('dhd', 'duck hunt duo', 'duo duck hunt', 'perro', 'perropato', 'duckhunt', 'dick hunt', 'ddh', 'dog'):
         return 'Duck Hunt'
@@ -105,8 +103,8 @@ def normalize_character(character_name):
         return 'Bayonetta'
     if char in ('rydle', 'ridel', 'ridli'):
         return 'Ridley'
-    if char in ('simon', 'richter', 'belmonts', 'belmont'):
-        return 'Simon/Richter'
+    if char in ('belmonts', 'belmont'):
+        return 'Simon'
     if char in ('king k rool', 'k rool', 'kkr', 'king krool', 'k. rool', 'cocodrilo'):
         return 'King K. Rool'
     if char in ('canela'):
