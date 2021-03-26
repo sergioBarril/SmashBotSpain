@@ -579,13 +579,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 return Response({'not_playing': "NOT_PLAYING"}, status=status.HTTP_400_BAD_REQUEST)
             
             arena_player.status = "GGS"
-            arena_player.save()
-        else:
-            arena.set_status("CLOSED")
-        
-            # Remove channel_id
-            arena.channel_id = None
-            arena.save()
+            arena_player.save()        
 
         # Get players
         players = arena.get_players()
@@ -596,6 +590,11 @@ class ArenaViewSet(viewsets.ModelViewSet):
             messages.append({'id': message.id, 'channel': message.tier.channel_id})
             if is_closed:
                 message.delete()
+
+        # Delete Arena
+        if is_closed:
+            arena.delete()
+        
         return Response({'closed': is_closed, 'messages': messages, 'players': players, 'ggs_time': guild.ggs_time}, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['post'])
@@ -604,18 +603,14 @@ class ArenaViewSet(viewsets.ModelViewSet):
 
         player = Player.objects.get(discord_id=player_id)
         player_status = player.status()
-        searching_arenas = Arena.objects.filter(status="SEARCHING", created_by=player).all()
+        arena = Arena.objects.filter(status="SEARCHING", created_by=player).first()
 
         #  CAN'T CANCEL
-        if not player_status or (player_status in ArenaPlayer.CAN_JOIN_STATUS and not searching_arenas):
+        if not player_status or (player_status in ArenaPlayer.CAN_JOIN_STATUS and not arena):
             return Response({'not_searching': "NOT_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
-        elif not searching_arenas:
+        elif not arena:
             return Response({'not_searching' : player_status}, status=status.HTTP_400_BAD_REQUEST)
 
-        #  CANCEL
-        for arena in searching_arenas:
-            arena.set_status("CANCELLED")
-        
         # REMOVE INVITATIONS
         for ap in ArenaPlayer.objects.filter(player=player, status="INVITED").all():
             ap.delete()
@@ -624,7 +619,10 @@ class ArenaViewSet(viewsets.ModelViewSet):
         for message in arena.message_set.all():
             messages.append({'id': message.id, 'channel': message.tier.channel_id})
             message.delete()
-        
+
+        #  CANCEL
+        arena.delete()
+                
         return Response({'messages': messages}, status=status.HTTP_200_OK)
     
     @action(detail=False)

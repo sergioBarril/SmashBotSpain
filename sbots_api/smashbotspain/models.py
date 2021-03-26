@@ -149,9 +149,7 @@ class Arena(models.Model):
         ('SEARCHING', 'Searching'),
         ('WAITING', 'Waiting'),
         ('CONFIRMATION', 'Confirmation'),
-        ('PLAYING', 'Playing'),
-        ('CLOSED', 'Closed'),
-        ('CANCELLED', 'Cancelled')
+        ('PLAYING', 'Playing')        
     ]
     
     MODE = [
@@ -211,14 +209,7 @@ class Arena(models.Model):
         players_status = status
         arena_players = self.arenaplayer_set.all()        
         
-        if status == "CANCELLED":
-            for arena_player in arena_players:
-                arena_player.delete()
-            return status
-
-        if status == "CLOSED":
-            players_status = "GGS"
-        elif status == "SEARCHING":
+        if status == "SEARCHING":
             players_status = "WAITING"        
         
         for player in self.arenaplayer_set.all():
