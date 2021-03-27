@@ -444,6 +444,25 @@ class Flairing(commands.Cog):
             else:
                 await ctx.send("Ha habido un error. ¿Quizá ese canal ya lo está usando otra tier?")
 
+    @commands.command()
+    async def start(self, ctx):
+        player = ctx.author
+        guild = ctx.guild
+
+        body = {
+            'player': player.id,
+            'guild': guild.id,
+            'roles': [role.id for role in player.roles]
+        }
+
+        async with self.bot.session.post(f'http://127.0.0.1:8000/players/', json=body) as response:
+            if response.status == 200:                
+                return await ctx.send("¡Ficha creada! Ya puedes usar el resto de comandos del bot.")
+            else:
+                logger.error("PLAYER CREATION ERROR")
+                logger.error(response)
+                return await ctx.send("Ha habido un problema con la creación de tu ficha. Contacta con algún admin.")
+    
     @tier_channel.error
     async def role_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
