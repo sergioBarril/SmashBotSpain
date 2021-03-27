@@ -15,8 +15,13 @@ class HelpCommands(commands.Cog):
     
     @commands.command()
     async def help(self, ctx, arg = None):
-        is_default = not in_tier_channel(ctx) and not in_their_arena(ctx) and not in_flairing_channel(ctx)
-        is_default = is_default and not in_spam_channel(ctx)
+        is_tier_channel = await in_tier_channel(ctx)
+        is_in_arena = in_arena(ctx)
+        is_flairing_channel = await in_flairing_channel(ctx)
+        is_spam_channel = await in_spam_channel(ctx)
+
+        is_default = not is_tier_channel and not is_in_arena and not is_flairing_channel
+        is_default = is_default and not is_spam_channel
         
         if arg is None and is_default:
             return await self.default_help(ctx)
@@ -24,16 +29,16 @@ class HelpCommands(commands.Cog):
         if arg is None:
             arg = ''
         
-        if in_tier_channel(ctx) or arg.lower() == 'matchmaking':
+        if is_tier_channel or arg.lower() == 'matchmaking':
             return await self.matchmaking_help(ctx)
         
-        if in_their_arena(ctx) or arg.lower() == 'arenas':
+        if is_in_arena or arg.lower() == 'arenas':
             return await self.arenas_help(ctx)
         
-        if in_flairing_channel(ctx) or arg.lower() == 'roles':
+        if is_flairing_channel or arg.lower() == 'roles':
             return await self.flairing_help(ctx)
         
-        if in_spam_channel(ctx) or arg.lower() == 'role-list':
+        if is_spam_channel or arg.lower() == 'role-list':
             return await self.spam_help(ctx)
     
     async def default_help(self, ctx):

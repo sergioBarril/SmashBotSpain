@@ -9,6 +9,7 @@ import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
 import json
+import logging
 
 from discord.ext import tasks, commands
 from discord.ext.commands.cooldowns import BucketType
@@ -18,16 +19,17 @@ from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT,
 
 from .checks.matchmaking_checks import (in_arena, in_tier_channel)
 
+logger = logging.getLogger('discord')
+
 class Matchmaking(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
         self.arena_invites = defaultdict(list)
     
-    async def setup_matchmaking(self, guild):
-        self.guild = guild
+    async def setup_matchmaking(self):        
         self.reset_matchmaking.start()
-        await self.update_list_message(guild=guild)
+        await self.reset_arenas(startup=True)
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(in_tier_channel)
@@ -100,7 +102,7 @@ class Matchmaking(commands.Cog):
                     await ctx.send(f"Vale **{player.nickname()}**, has dejado de buscar en: {tiers_removed_str}.")
                 
                 removed_messages = resp_body.get('removed_messages', [])
-                await self.delete_messages(ctx, removed_messages)
+                await self.delete_messages(guild, removed_messages)
                 await self.update_list_message(guild=ctx.guild)
             
             # STATUS_CONFLICT ERROR
@@ -148,6 +150,8 @@ class Matchmaking(commands.Cog):
     @friendlies.error
     async def friendlies_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
             pass
         else:
             raise error
@@ -202,16 +206,20 @@ class Matchmaking(commands.Cog):
     async def ggs_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
         else:
             raise error
 
     @commands.command()
+    @commands.check(in_tier_channel)
     async def cancel(self, ctx):
         player = ctx.author
+        guild = ctx.guild
 
         body = {
             'player' : player.id,
-            'guild' : ctx.guild.id
+            'guild' : guild.id
         }
         
         async with self.bot.session.post(f'http://127.0.0.1:8000/arenas/cancel/', json=body) as response:
@@ -225,7 +233,7 @@ class Matchmaking(commands.Cog):
                 
                 #  Delete mention messages
                 messages = resp_body.get('messages', [])
-                await self.delete_messages(ctx, messages)
+                await self.delete_messages(guild, messages)
                 
             elif response.status == 400:
                 html = await response.text()
@@ -284,6 +292,8 @@ class Matchmaking(commands.Cog):
     async def invite_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
         else:
@@ -334,7 +344,7 @@ class Matchmaking(commands.Cog):
                 message = await channel.fetch_message(message_data['id'])
                 edit_tasks.append(message.edit(content=text))
             except discord.NotFound:
-                print(f"Couldn't find message with id {message_data['id']}")
+                logger.error(f"Couldn't find message with id {message_data['id']}")
                 return False            
         
         await asyncio.gather(*edit_tasks)
@@ -348,19 +358,20 @@ class Matchmaking(commands.Cog):
         
         async with self.bot.session.post('http://127.0.0.1:8000/messages/', json=body) as response:
             if response.status != 201:
-                print("ERROR CREATING MESSAGES")
+                logger.error("ERROR CREATING MESSAGES")
+                logger.error(response)
                 return False
         return True
         
     
-    async def delete_messages(self, ctx, messages):
+    async def delete_messages(self, guild, messages):
         if not messages:
             return False
         
         delete_tasks = []        
         
         for message_data in messages:
-            channel = ctx.guild.get_channel(message_data['channel'])            
+            channel = guild.get_channel(message_data['channel'])
             message = await channel.fetch_message(int(message_data['id']))
             delete_tasks.append(message.delete())
         
@@ -422,7 +433,7 @@ class Matchmaking(commands.Cog):
 
     async def set_arena(self, ctx, player1, player2, arena_id):
         match = player1, player2                
-        arena = await self.make_arena()
+        arena = await self.make_arena(ctx.guild)
 
         # Set channel in API
         body = { 'channel_id' : arena.id }
@@ -664,7 +675,8 @@ class Matchmaking(commands.Cog):
                     messages = resp_body.get('messages', [])
                     players = resp_body.get('players', {})
                 else:
-                    print("Error with invite confirmation")
+                    logger.error("Error with invite confirmation")
+                    logger.error(response)            
             
             if is_accepted:
                 await arena.set_permissions(guest, read_messages=True, send_messages=True)
@@ -718,7 +730,7 @@ class Matchmaking(commands.Cog):
     #  ***********************************************
     #           A   R   E   N   A   S
     #  ***********************************************
-    async def make_arena(self):
+    async def make_arena(self, guild):
         """
         Creates a text channel called #arena-X (x is an autoincrementing int).
         Returns this channel.
@@ -727,7 +739,7 @@ class Matchmaking(commands.Cog):
         def get_arena_number(arena):
             return int(arena.name[arena.name.index("-") + 1:])
         
-        arenas_category = discord.utils.get(self.guild.categories, name="ARENAS")
+        arenas_category = discord.utils.get(guild.categories, name="ARENAS")
         arenas = arenas_category.channels        
         
         new_arena_number = max(map(get_arena_number, arenas), default=0) + 1
@@ -772,12 +784,12 @@ class Matchmaking(commands.Cog):
                     players_text = [f"**{player['name']}** ({player['tier']})" for player in players]
                     new_message += f"{' vs. '.join(players_text)}\n"
 
-                list_channel = self.guild.get_channel(resp_body['list_channel'])
+                list_channel = guild.get_channel(resp_body['list_channel'])
                 list_message = await list_channel.fetch_message(resp_body['list_message'])
 
                 return await list_message.edit(content=new_message)
             else:
-                print("Error")
+                logger.error(f"Error updating the list message")
                 return False        
     
     async def invite_mention_list(self, ctx):        
@@ -849,24 +861,72 @@ class Matchmaking(commands.Cog):
     async def check_tasks_error(self, ctx, error):            
         if isinstance(error, commands.CheckFailure):
             pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
         else:
             raise error
 
     # *******************************
     #           C L E A N   U P
     # *******************************
+    async def reset_arenas(self, startup=False):
+        """
+        Deletes all open arenas. If startup is True, deletes only those in WAITING
+        or CONFIRMATION.
+        """
+        # GET ARENAS INFO
+        body = {'startup': startup}
+        async with self.bot.session.delete('http://127.0.0.1:8000/arenas/clean_up/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                arenas = resp_body.get('arenas', [])
+            else:
+                logger.error("ERROR WITH CLEAN_UP")
+                logger.error(response)
+                return
+        
+        guild_set = set()
+        member_set = set()
+
+        for arena in arenas:
+            # GET GUILD
+            guild = self.bot.get_guild(arena['guild'])
+            guild_set.add(guild)
+
+            # DELETE TEXT CHANNEL
+            channel_id = arena['channel']
+            
+            if channel_id:
+                arena_channel = guild.get_channel(channel_id)
+                if arena_channel:
+                    arena_channel.delete()
+            
+            # MEMBER
+            member = guild.get_member(arena.get('player'))
+            if member:
+                member_set.add(member)
+                
+            # DELETE MESSAGES
+            await self.delete_messages(guild, arena.get('messages', []))
+        
+        for guild in guild_set:
+            await self.update_list_message(guild=guild)
+
+        if startup:
+            for member in member_set:
+                await member.send(f"Se reinició el bot, así que se perdió tu búsqueda de partida. ¡Lo siento! Vuelve a buscar partida.")
+        
+        logger.info("CLEAN UP OK!")
+
     @tasks.loop(hours=24)
     async def reset_matchmaking(self):
-        pass
-        # await self.delete_arenas()        
-        
-        # self.search_list = {f"Tier {i}" : [] for i in range(1, 5)}
-        # self.confirmation_list = []
-        # self.rejected_list = []
-                
-        # await self.update_list_message()
-        
-        # print("Clean up complete")
+        """
+        Deletes all open arenas, everyday at 5:15 AM.
+        """
+        return await self.reset_arenas()
+       
     
     @reset_matchmaking.before_loop
     async def before_reset_matchmaking(self):

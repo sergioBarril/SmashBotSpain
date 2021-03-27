@@ -1,8 +1,11 @@
 # bot.py
 import os
 import aiohttp
+import sys
 
 import discord
+import logging
+
 from discord.ext import tasks, commands
 
 from dotenv import load_dotenv
@@ -10,6 +13,18 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = int(os.getenv('DISCORD_GUILD'))
+
+# Logger Configuration
+logger = logging.getLogger('discord')
+logger.setLevel(logging.INFO)
+
+handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
+handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
+
+stdout_handler = logging.StreamHandler(sys.stdout)
+
+logger.addHandler(stdout_handler)
+logger.addHandler(handler)
 
 class SmashBotSpain(commands.Bot):
     VERSION =  "v1.1"
@@ -22,13 +37,13 @@ class SmashBotSpain(commands.Bot):
         self.guild = self.get_guild(GUILD_ID)
         self.session = aiohttp.ClientSession()
         
-        print(
+        logger.info(
             f'{client.user} is connected to the following guild:\n'
             f'{self.guild.name}(id: {self.guild.id})'
         )
 
         matchmaking = self.get_cog('Matchmaking')        
-        await matchmaking.setup_matchmaking(guild=self.guild)        
+        await matchmaking.setup_matchmaking()        
         
 intents = discord.Intents.default()  # All but the two privileged ones
 intents.members = True
