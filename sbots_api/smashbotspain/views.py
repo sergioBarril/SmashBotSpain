@@ -544,12 +544,20 @@ class ArenaViewSet(viewsets.ModelViewSet):
     def clean_up(self, request):
         """
         Deletes all arenas. Returns the channels and messages to delete
+        If the param startup is True, only the confirmation and waiting arenas are deleted.
         """
-        response = []        
-        arenas = Arena.objects.all()
+        response = []
+
+        startup = request.data.get('startup', False)
+        
+        if startup:
+            arenas = Arena.objects.filter(status__in=("CONFIRMATION", "WAITING")).all()
+        else:
+            arenas = Arena.objects.all()
 
         for arena in arenas:
             arena_dict = {'guild': arena.guild.discord_id, 'channel': arena.channel_id,
+                'player': arena.created_by.discord_id,
                 'messages': [{'id': message.id, 'channel': message.tier.channel_id} for message in arena.message_set.all()]}
             response.append(arena_dict)
             arena.delete()

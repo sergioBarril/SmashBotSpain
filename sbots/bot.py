@@ -36,7 +36,7 @@ class SmashBotSpain(commands.Bot):
         )
 
         matchmaking = self.get_cog('Matchmaking')        
-        await matchmaking.setup_matchmaking(guild=self.guild)        
+        await matchmaking.setup_matchmaking()        
         
 intents = discord.Intents.default()  # All but the two privileged ones
 intents.members = True

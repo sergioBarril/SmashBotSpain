@@ -27,10 +27,9 @@ class Matchmaking(commands.Cog):
         self.bot = bot
         self.arena_invites = defaultdict(list)
     
-    async def setup_matchmaking(self, guild):
-        self.guild = guild
+    async def setup_matchmaking(self):        
         self.reset_matchmaking.start()
-        await self.update_list_message(guild=guild)
+        await self.reset_arenas(startup=True)
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(in_tier_channel)
@@ -434,7 +433,7 @@ class Matchmaking(commands.Cog):
 
     async def set_arena(self, ctx, player1, player2, arena_id):
         match = player1, player2                
-        arena = await self.make_arena()
+        arena = await self.make_arena(ctx.guild)
 
         # Set channel in API
         body = { 'channel_id' : arena.id }
@@ -731,7 +730,7 @@ class Matchmaking(commands.Cog):
     #  ***********************************************
     #           A   R   E   N   A   S
     #  ***********************************************
-    async def make_arena(self):
+    async def make_arena(self, guild):
         """
         Creates a text channel called #arena-X (x is an autoincrementing int).
         Returns this channel.
@@ -740,7 +739,7 @@ class Matchmaking(commands.Cog):
         def get_arena_number(arena):
             return int(arena.name[arena.name.index("-") + 1:])
         
-        arenas_category = discord.utils.get(self.guild.categories, name="ARENAS")
+        arenas_category = discord.utils.get(guild.categories, name="ARENAS")
         arenas = arenas_category.channels        
         
         new_arena_number = max(map(get_arena_number, arenas), default=0) + 1
@@ -785,7 +784,7 @@ class Matchmaking(commands.Cog):
                     players_text = [f"**{player['name']}** ({player['tier']})" for player in players]
                     new_message += f"{' vs. '.join(players_text)}\n"
 
-                list_channel = self.guild.get_channel(resp_body['list_channel'])
+                list_channel = guild.get_channel(resp_body['list_channel'])
                 list_message = await list_channel.fetch_message(resp_body['list_message'])
 
                 return await list_message.edit(content=new_message)
@@ -870,13 +869,14 @@ class Matchmaking(commands.Cog):
     # *******************************
     #           C L E A N   U P
     # *******************************
-    @tasks.loop(hours=24)
-    async def reset_matchmaking(self):
+    async def reset_arenas(self, startup=False):
         """
-        Deletes all open arenas.
+        Deletes all open arenas. If startup is True, deletes only those in WAITING
+        or CONFIRMATION.
         """
         # GET ARENAS INFO
-        async with self.bot.session.delete('http://127.0.0.1:8000/arenas/clean_up/') as response:            
+        body = {'startup': startup}
+        async with self.bot.session.delete('http://127.0.0.1:8000/arenas/clean_up/', json=body) as response:
             if response.status == 200:
                 html = await response.text()
                 resp_body = json.loads(html)
@@ -887,7 +887,9 @@ class Matchmaking(commands.Cog):
                 logger.error(response)
                 return
         
-        guild_set = set()        
+        guild_set = set()
+        member_set = set()
+
         for arena in arenas:
             # GET GUILD
             guild = self.bot.get_guild(arena['guild'])
@@ -901,13 +903,30 @@ class Matchmaking(commands.Cog):
                 if arena_channel:
                     arena_channel.delete()
             
+            # MEMBER
+            member = guild.get_member(arena.get('player'))
+            if member:
+                member_set.add(member)
+                
             # DELETE MESSAGES
             await self.delete_messages(guild, arena.get('messages', []))
         
         for guild in guild_set:
             await self.update_list_message(guild=guild)
+
+        if startup:
+            for member in member_set:
+                await member.send(f"Se reinició el bot, así que se perdió tu búsqueda de partida. ¡Lo siento! Vuelve a buscar partida.")
         
         logger.info("CLEAN UP OK!")
+
+    @tasks.loop(hours=24)
+    async def reset_matchmaking(self):
+        """
+        Deletes all open arenas, everyday at 5:15 AM.
+        """
+        return await self.reset_arenas()
+       
     
     @reset_matchmaking.before_loop
     async def before_reset_matchmaking(self):
