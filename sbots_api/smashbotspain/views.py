@@ -24,12 +24,49 @@ class PlayerViewSet(viewsets.ModelViewSet):
     serializer_class = PlayerSerializer
     lookup_field = "discord_id"
     
-    def create(self, request):        
-        serializer = PlayerSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def create(self, request):
+        """
+        Create a player, and imports their roles to characters
+        """
+        player_id = request.data['player']
+        guild = Guild.objects.get(discord_id=request.data['guild'])
+        roles = request.data.get('roles', [])
+
+        characters = Character.objects.filter(guild=guild)
+        regions = Region.objects.filter(guild=guild)
+        tiers = Tier.objects.filter(guild=guild)
+        
+        # Create Player
+        player, created = Player.objects.get_or_create(discord_id=player_id, defaults={
+            'discord_id': player_id
+        })        
+
+        tier_roles = []        
+        mains_count = 0        
+        
+        for role_id in roles:
+            # Tier
+            if tier := tiers.filter(discord_id=role_id).first():
+                tier_roles.append(tier)
+            # Characters
+            elif character := characters.filter(discord_id=role_id).first():
+                pocket, created = Main.objects.update_or_create(player=player, character=character, defaults={
+                    'player': player,
+                    'character': character,
+                    'status': "MAIN" if mains_count < 2 else "SECOND"
+                })
+
+                mains_count += 1
+            # Region
+            elif region := regions.filter(discord_id=role_id).first():
+                player.regions.add(region)
+        
+        # Add only the highest tier role
+        if tier_roles:
+            tier_roles.sort(key=lambda tier : tier.weight, reverse=True)
+            player.tiers.add(tier_roles[0])
+        
+        return Response(status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def profile(self, request, discord_id):

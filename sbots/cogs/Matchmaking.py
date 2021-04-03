@@ -17,6 +17,7 @@ from discord.ext.commands.cooldowns import BucketType
 from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT, 
                     EMOJI_HOURGLASS, NUMBER_EMOJIS)
 
+from .checks.flairing_checks import player_exists
 from .checks.matchmaking_checks import (in_arena, in_tier_channel)
 
 logger = logging.getLogger('discord')
@@ -32,6 +33,7 @@ class Matchmaking(commands.Cog):
         await self.reset_arenas(startup=True)
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
+    @commands.check(player_exists)
     @commands.check(in_tier_channel)
     async def friendlies(self, ctx, tier_num=None):
         """
@@ -146,18 +148,10 @@ class Matchmaking(commands.Cog):
                     error_message = error_messages[error]
                     await ctx.send(error_message)
             return
-
-    @friendlies.error
-    async def friendlies_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-        elif isinstance(error, commands.errors.MissingPermissions):
-            pass
-        else:
-            raise error
-
+    
     @commands.command()
-    @commands.check(in_arena)
+    @commands.check(player_exists)
+    @commands.check(in_arena)    
     async def ggs(self, ctx):
         arena_channel = ctx.channel
         guild = ctx.guild
@@ -200,19 +194,11 @@ class Matchmaking(commands.Cog):
                 else:
                     await arena_channel.set_permissions(author, read_messages=False, send_messages=False)
             else:
-                await ctx.send("GGs. ¡Gracias por jugar!")
+                await ctx.send("GGs. ¡Gracias por jugar!")        
     
-    @ggs.error
-    async def ggs_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-        elif isinstance(error, commands.errors.MissingPermissions):
-            pass
-        else:
-            raise error
-
     @commands.command()
-    @commands.check(in_tier_channel)
+    @commands.check(player_exists)
+    @commands.check(in_tier_channel)    
     async def cancel(self, ctx):
         player = ctx.author
         guild = ctx.guild
@@ -251,7 +237,8 @@ class Matchmaking(commands.Cog):
             await self.update_list_message(guild=ctx.guild)
     
     @commands.command()
-    @commands.check(in_arena)
+    @commands.check(player_exists)
+    @commands.check(in_arena)    
     @commands.cooldown(1, 15, BucketType.channel)
     async def invite(self, ctx):        
         host = ctx.author
@@ -286,20 +273,6 @@ class Matchmaking(commands.Cog):
         
         # Ask for guest's consent
         await self.confirm_invite(ctx, guest, hosts)
-
-
-    @invite.error
-    async def invite_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-        elif isinstance(error, commands.errors.MissingPermissions):
-            pass
-        elif isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
-        else:
-            raise error
-
-
 
     #  ************************************
     #             M E S S A G E S
@@ -856,15 +829,6 @@ class Matchmaking(commands.Cog):
         tasks = asyncio.all_tasks()
         tasks_name = [task.get_name() for task in tasks]
         await ctx.send(tasks_name)
-    
-    @check_tasks.error
-    async def check_tasks_error(self, ctx, error):            
-        if isinstance(error, commands.CheckFailure):
-            pass
-        elif isinstance(error, commands.errors.MissingPermissions):
-            pass
-        else:
-            raise error
 
     # *******************************
     #           C L E A N   U P
@@ -939,6 +903,48 @@ class Matchmaking(commands.Cog):
 
         delta = (future - now).seconds
         await asyncio.sleep(delta)
+    
+    # **********************************
+    #           ERROR HANDLERS
+    # **********************************
+
+    @friendlies.error
+    async def friendlies_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        else:
+            raise error
+    
+    @ggs.error
+    async def ggs_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        else:
+            raise error
+    
+    @invite.error
+    async def invite_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        elif isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
+        else:
+            raise error
+    
+    @check_tasks.error
+    async def check_tasks_error(self, ctx, error):            
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        else:
+            raise error
 
 def setup(bot):
     bot.add_cog(Matchmaking(bot))
