@@ -1,0 +1,1 @@
+PRIVACY_POLICY = f"https://docs.google.com/document/d/1wZZy-8LGIKMtmJsYoVIjYsLiamhA4kuW0lN5ChrFkpA/edit?usp=sharing"

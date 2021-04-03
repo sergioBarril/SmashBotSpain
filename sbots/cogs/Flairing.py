@@ -10,9 +10,10 @@ import logging
 
 from discord.ext import tasks, commands
 
-from .params.matchmaking_params import (TIER_NAMES)
+from .params.matchmaking_params import (TIER_NAMES, EMOJI_CONFIRM)
+from .params.settings import PRIVACY_POLICY
 
-from .checks.flairing_checks import (in_flairing_channel, in_spam_channel)
+from .checks.flairing_checks import (in_flairing_channel, in_spam_channel, player_exists)
 
 from .formatters.text import list_with_and
 from .params.roles import SPANISH_REGIONS, SMASH_CHARACTERS, DEFAULT_TIERS
@@ -46,7 +47,8 @@ class Flairing(commands.Cog):
             await ctx.send(f"Tiers creadas: {created}. Tiers actualizadas (o dejadas igual): {updated}")        
     
     @commands.command(aliases=["region", "main", "second", "pocket", "tier"])
-    @commands.check_any(commands.check(in_flairing_channel), commands.check(in_spam_channel))
+    @commands.check(player_exists)
+    @commands.check_any(commands.check(in_flairing_channel), commands.check(in_spam_channel))    
     async def set_role(self, ctx, *, param = None):
         player = ctx.author
         guild = ctx.guild
@@ -188,6 +190,7 @@ class Flairing(commands.Cog):
     
     @commands.command(aliases=['import'])
     @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def import_roles(self, ctx, *, role_type=None):
         guild = ctx.guild
         all_roles = await guild.fetch_roles()
@@ -334,7 +337,8 @@ class Flairing(commands.Cog):
 
 
     @commands.command(aliases=["perfil"])
-    @commands.guild_only()
+    @commands.check(player_exists)
+    @commands.guild_only()    
     async def profile(self, ctx):
         guild = ctx.guild
         player = ctx.author
@@ -410,18 +414,10 @@ class Flairing(commands.Cog):
             embed.add_field(name=pocket_title, value=pocket_text, inline=True)
         
         return await ctx.send(embed=embed)
-
-    @role.error
-    async def role_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-        elif isinstance(error, commands.errors.MissingPermissions):
-            pass
-        else:
-            raise error
-
+    
     @commands.command()
     @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def tier_channel(self, ctx, tier: typing.Optional[discord.Role], channel: typing.Optional[discord.TextChannel]):
         """
         Given a tier and a channel, sets the tier's channel.        
@@ -444,11 +440,50 @@ class Flairing(commands.Cog):
             else:
                 await ctx.send("Ha habido un error. ¿Quizá ese canal ya lo está usando otra tier?")
 
-    @commands.command()
-    async def start(self, ctx):
-        player = ctx.author
+    # ***************************
+    #       R E G I S T E R
+    # ***************************
+    async def register(self, ctx):
         guild = ctx.guild
+        player = guild.get_member(ctx.author.id)
 
+        # CANCEL PREVIOUS TASK
+        tasks = asyncio.all_tasks()
+        register_task_name = f"policy-{player.id}"
+
+        for task in tasks:
+            task_name = task.get_name()
+            
+            if task_name == register_task_name:
+                task.cancel()
+                break
+
+        # NAME THIS TASK
+        asyncio.current_task().set_name(f"policy-{player.id}")
+
+        # POLICY CONFIRMATION MESSAGE
+        try:
+            message = await player.send((
+                "Este bot guarda información de los jugadores (IDs de Discord, regiones, mains, resultados de sets, etc) para poder funcionar.\n"
+                f"El uso de datos está detallado en la política de privacidad: {PRIVACY_POLICY}.\n\n"
+                f"Reacciona con {EMOJI_CONFIRM} para aceptar la política de privacidad y tener acceso al bot."
+            ))
+
+            def check_message(reaction, user):
+                is_same_message = (reaction.message == message)
+                is_valid_emoji = (reaction.emoji == EMOJI_CONFIRM)
+                is_player = (user.id == player.id)
+
+                return is_same_message and is_valid_emoji and is_player
+            
+            await message.add_reaction(EMOJI_CONFIRM)
+            await self.bot.wait_for('reaction_add', check=check_message)        
+        
+        except asyncio.CancelledError:
+            await message.delete()
+            return False
+        
+        # PLAYER PROFILE CREATION
         body = {
             'player': player.id,
             'guild': guild.id,
@@ -457,11 +492,43 @@ class Flairing(commands.Cog):
 
         async with self.bot.session.post(f'http://127.0.0.1:8000/players/', json=body) as response:
             if response.status == 200:                
-                return await ctx.send("¡Ficha creada! Ya puedes usar el resto de comandos del bot.")
+                await player.send("¡Perfil creado! Ya puedes usar el resto de comandos del bot.")
+                return True
             else:
                 logger.error("PLAYER CREATION ERROR")
                 logger.error(response)
-                return await ctx.send("Ha habido un problema con la creación de tu ficha. Contacta con algún admin.")
+                await player.send("Ha habido un problema con la creación de tu ficha. Contacta con algún admin y vuelve a probar.")
+                return False
+    
+    # *****************************
+    #        ERROR HANDLERS
+    # *****************************
+    @set_role.error
+    async def set_role_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        else:
+            raise error
+    
+    @profile.error
+    async def profile_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        else:
+            raise error
+
+    @role.error
+    async def role_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        else:
+            raise error
     
     @tier_channel.error
     async def role_error(self, ctx, error):
