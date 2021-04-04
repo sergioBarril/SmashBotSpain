@@ -92,7 +92,17 @@ class HelpCommands(commands.Cog):
         embed.set_footer(text="Roles Help", icon_url=self.footer_image)
 
         embed.add_field(name="`.region`", inline=False, value=f"El comando `.region` te permite añadir el rol de tu región.\n_(Regiones disponibles: {', '.join([region_name for region_name in SPANISH_REGIONS.keys()])})_\n\n_Ejemplo: `.region Catalunya`_\n")
-        embed.add_field(name="`.main`", inline=False, value=f"El comando `.main` (o `.second`, que hace exactamente lo mismo) te permite añadir el rol de tu personaje.\nLos roles están en inglés, pero en principio podéis poner el nombre en castellano, y poner nombres alternativos mientras no desfaséis mucho.\n\n_Ejemplo: `.main palu`_\n")
+        
+        embed.add_field(
+            name="`.main`",
+            inline=False,
+            value=(
+                "Los comandos `.main`, `.second` y `.pocket` te permiten añadir el rol de tu personaje.\n"
+                "Solo podréis tener 2 mains, el resto de personajes tendrán que ir a seconds o a pockets.\n"
+                "Los roles están en inglés, pero en principio podéis poner el nombre en castellano, y poner nombres alternativos"
+                " mientras no desfaséis mucho.\n\n_Ejemplo: `.main palu`_\n"
+            )
+        )
         embed.add_field(name="`.tier`", inline=False, value=f"El comando `.tier` seguido de un número del 2 al 4 te asignará el rol de esa Tier, para así poder recibir sus pings.\nNo puedes ni quitarte tu propia tier, ni autoasignarte una tier superior.\n\n_Ejemplo: `.tier 4`_\n")
         embed.add_field(name="Eliminar roles", inline=False, value=f"Usando uno de estos comandos cuando ya tenéis el rol, os lo quitará.\n\n_Ejemplo: Si tengo el rol de main Mario y escribo `.main Mario`, se me quitará el rol._")
         await ctx.send(embed=embed)
@@ -102,7 +112,7 @@ class HelpCommands(commands.Cog):
         embed.set_footer(text="Role List Help", icon_url=self.footer_image)
 
         embed.add_field(name="`.role`", inline=False, value=f"El comando `.role` o `.rol` seguido del nombre del rol (no importan mayúsculas ni minúsculas, y con los pjs se aceptan cosas como gaw, ddd o palu) os dará una lista con todos los jugadores con ese rol.")
-        embed.add_field(name="`.regiones`, `.tiers`, `.mains`", inline=False, value=f"Escribid cualquiera de estos comandos para obtener una lista con cada rol de esa categoría (regiones, personajes o tiers).")
+        embed.add_field(name="`.regiones`, `.tiers`, `.mains`, `.seconds`, `.pockets`", inline=False, value=f"Escribid cualquiera de estos comandos para obtener una lista con cada rol de esa categoría (regiones, personajes o tiers).")
         
         await ctx.send(embed=embed)
 
