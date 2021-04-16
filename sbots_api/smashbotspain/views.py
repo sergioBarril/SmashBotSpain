@@ -5,7 +5,7 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main
+from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer
 from smashbotspain.serializers import (PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
                                         MainSerializer, RegionSerializer, CharacterSerializer)
 

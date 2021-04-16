@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, Main, Region
+from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, Main, Region, Game, GameSet, GamePlayer
 
 from smashbotspain.aux_methods.text import list_with_and
 
@@ -64,7 +64,41 @@ class MainSerializer(serializers.ModelSerializer):
         model = Main
         fields = ('id', 'player', 'character', 'status')
 
+class GameSetSerializer(serializers.ModelSerializer):
+    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all(), many=False)
+    players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True)
 
+    win_condition = serializers.CharField(default="BO3")
+    winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=False)
+
+    class Meta:
+        model = GameSet
+        fields = '__all__'
+
+class GameSerializer(serializers.ModelSerializer):
+    players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True)
+    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all(), many=False)
+    
+    game_set = serializers.PrimaryKeyRelatedField(queryset=GameSet.objects.all(), required=True, many=False)
+    stage = serializers.CharField(required=False)
+    
+    winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, many=False)
+    winner_character = serializers.CharField(required=False)
+
+    class Meta:
+        model = Game
+        fields = '__all__'
+
+class GamePlayer(serializers.ModelSerializer):
+    player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=True)
+    game = serializers.PrimaryKeyRelatedField(queryset=Game.objects.all(), required=True)
+    
+    character = serializers.CharField(required=False)
+    winner = serializers.BooleanField(required=False)
+
+    class Meta:
+        model = GamePlayer
+        fields = '__all__'
 
 class ArenaSerializer(serializers.ModelSerializer):    
     guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
