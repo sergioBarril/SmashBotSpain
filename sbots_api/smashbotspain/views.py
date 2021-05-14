@@ -722,31 +722,19 @@ class ArenaViewSet(viewsets.ModelViewSet):
         force_tier = request.data.get('force_tier', False)
         
         # Get player tier
-        tier_roles = Tier.objects.filter(discord_id__in=roles)
-        
+        tier_roles = Tier.objects.filter(discord_id__in=roles)        
         if not tier_roles:
-            return Response({"cant_join":"NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response({"cant_join":"NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)        
         player_tier = max(tier_roles, key=lambda role : role.weight)
 
-        # Get or create player
-        player_id = request.data['created_by']        
+        # Get player
+        player_id = request.data['created_by']
         try:
             player = Player.objects.get(discord_id=player_id)
-        except Player.DoesNotExist as e:                        
-            player_data = {
-                'discord_id' : player_id                
-            }
-            player_serializer = PlayerSerializer(data=player_data, context={'tier' : player_tier.discord_id})
-            if player_serializer.is_valid():
-                player = player_serializer.save()
-            else:
-                return Response(player_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Player.MultipleObjectsReturned as e:
-            x = Player.objects.filter(discord_id=player_id).all()
-            for p in x:
-                print(p)
-            return
+        except Player.DoesNotExist as e:            
+            return Response({"cant_join": "PLAYER_DOES_NOT_EXIST"}, status=status.HTTP_400_BAD_REQUEST)
+        except Player.MultipleObjectsReturned as e:            
+            return Response({"cant_join" : "MULTIPLE_PLAYERS"}, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if can search
         player_status = player.status()
@@ -778,7 +766,12 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 return Response({"cant_join" : "ALREADY_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
             
             # Partial update
-            old_serializer = ArenaSerializer(old_arena, data={'min_tier' : min_tier.discord_id, 'max_tier' : max_tier.discord_id}, partial=True)
+            old_serializer = ArenaSerializer(old_arena,
+                data={
+                    'min_tier' : min_tier.discord_id,
+                    'max_tier' : max_tier.discord_id
+                }, partial=True)
+            
             if old_serializer.is_valid():
                 old_serializer.save()
             else:
@@ -804,7 +797,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 if serializer.is_valid():
                     old_arena = serializer.save()
                 else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)                
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
                 
             old_arena.set_status("WAITING")
 
