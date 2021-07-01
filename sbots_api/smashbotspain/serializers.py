@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.fields import ReadOnlyField
 from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, Main, Region, Game, GameSet, GamePlayer
 
 from smashbotspain.aux_methods.text import list_with_and
@@ -102,9 +103,13 @@ class GamePlayer(serializers.ModelSerializer):
 
 class ArenaSerializer(serializers.ModelSerializer):    
     guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
-    created_by = serializers.SlugRelatedField(slug_field="discord_id", queryset=Player.objects.all())    
-    max_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
-    min_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
+    created_by = serializers.SlugRelatedField(slug_field="discord_id", queryset=Player.objects.all())
+    mode = serializers.CharField(required=True)
+    status = serializers.CharField(required=False)
+    
+    # Friendlies
+    max_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all(), required=False)
+    min_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all(), required=False)
 
     players = serializers.SlugRelatedField(slug_field="discord_id", many=True, required=False, read_only=True)
 

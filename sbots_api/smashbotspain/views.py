@@ -237,6 +237,42 @@ class PlayerViewSet(viewsets.ModelViewSet):
         return Response({'roles': response}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
+    def ranked_matchmaking(self, request, discord_id):
+        """
+        Matches. Ranked only
+        """
+        player = self.get_object()
+
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(discord_id=guild_id)
+
+
+        arenas = player.search_ranked(guild=guild)
+        if arenas: # Join existing arena
+            arena = arenas.first()
+            arena.add_player(player, "CONFIRMATION")
+            arena.set_status("CONFIRMATION")
+            arena.save()
+
+            arena.created_by.confirmation(arena)
+            player.confirmation(arena)
+
+            # Messages
+            arena_messages = Message.objects.filter(arena=arena).all()
+            
+            return Response({
+                "match_found" : True,
+                "player_one" : arena.created_by.discord_id,
+                "player_two" : player.discord_id,
+                "messages" : [{'id': message.id, 'channel': message.tier.channel_id} for message in arena_messages]
+            }, status=status.HTTP_201_CREATED)  
+    
+    
+    
+    
+    
+    
+    @action(detail=True, methods=['get'])
     def matchmaking(self, request, discord_id):
         """
         Matches the player. Requires to have created an arena through POST /arenas/.
@@ -713,6 +749,67 @@ class ArenaViewSet(viewsets.ModelViewSet):
         players = [{'id': player.discord_id, 'tier': player.tier(guild).discord_id} for player in players]
 
         return Response({'players': players, 'hosts': hosts}, status=status.HTTP_200_OK)    
+
+    @action(detail=False, methods=['post'])
+    def ranked(self, request):
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(discord_id=guild_id)
+
+        # Get player
+        player_id = request.data['created_by']
+        try:
+            player = Player.objects.get(discord_id=player_id)
+        except Player.DoesNotExist as e:            
+            return Response({"cant_join": "PLAYER_DOES_NOT_EXIST"}, status=status.HTTP_400_BAD_REQUEST)
+        except Player.MultipleObjectsReturned as e:            
+            return Response({"cant_join" : "MULTIPLE_PLAYERS"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if can search
+        my_ranked = Arena.objects.filter(created_by=player, mode="RANKED", status="SEARCHING").first()
+        player_status = "ALREADY_SEARCHING" if my_ranked else player.status()
+        
+        if player_status in ArenaPlayer.CANT_JOIN_STATUS :
+            return Response({"cant_join" : player_status}, status=status.HTTP_409_CONFLICT)
+
+        # Create my ranked arena
+        arena_data = {
+            'guild' : guild.discord_id,
+            'created_by': player.discord_id,
+            'mode': 'RANKED',
+            'status': 'WAITING'
+        }
+        arena_serializer = ArenaSerializer(data=arena_data)
+        if arena_serializer.is_valid():
+            my_arena = arena_serializer.save()
+        else:
+            return Response(arena_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Matchmaking
+        arenas = player.search_ranked(guild=guild)
+
+        if arenas: # Join existing arena
+            arena = arenas.first()
+            arena.add_player(player, "CONFIRMATION")
+            arena.set_status("CONFIRMATION")
+            arena.save()
+
+            arena.created_by.confirmation(arena)
+            player.confirmation(arena)
+
+            # Messages
+            arena_messages = Message.objects.filter(arena=arena).all()
+            
+            return Response({
+                "match_found" : True,
+                "player_one" : arena.created_by.discord_id,
+                "player_two" : player_id,
+                "messages" : [{'id': message.id, 'channel': message.tier.channel_id} for message in arena_messages]
+            }, status=status.HTTP_201_CREATED)        
+        else:
+            my_arena.set_status("SEARCHING")
+            return Response({"match_found": False}, status=status.HTTP_201_CREATED)
+
+
 
     def create(self, request):
         guild_id = request.data['guild']

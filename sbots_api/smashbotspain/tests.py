@@ -53,7 +53,8 @@ class ArenaTestCase(TestCase):
             'guild' : self.guild.discord_id,
             'created_by' : self.tropped.discord_id,            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel            
-            'roles' : [self.tier2.discord_id] # Tier 2
+            'roles' : [self.tier2.discord_id], # Tier 2
+            'mode' : 'FRIENDLIES'
         }
         
         response = client.post('/arenas/', body, format='json')
@@ -73,7 +74,8 @@ class ArenaTestCase(TestCase):
             'guild' : self.guild.discord_id,
             'created_by' : self.tropped.discord_id,            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel            
-            'roles' : [self.tier2.discord_id] # Tier 2
+            'roles' : [self.tier2.discord_id],  # Tier 2
+            'mode' : 'FRIENDLIES'
         }
 
         response = client.post('/arenas/', body, format='json')
@@ -88,7 +90,8 @@ class ArenaTestCase(TestCase):
             'guild' : self.guild.discord_id,
             'created_by' : self.tropped.discord_id,  # Tropped            
             'min_tier' : self.tier1.channel_id,  # Tier 1 channel            
-            'roles' : [self.tier2.discord_id] # Tier 2
+            'roles' : [self.tier2.discord_id], # Tier 2
+            'mode' : 'FRIENDLIES'
         }
 
         response = client.post('/arenas/', body, format='json')
@@ -103,14 +106,16 @@ class ArenaTestCase(TestCase):
             'guild' : self.guild.discord_id,
             'created_by' : self.tropped.discord_id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
-            'roles' : [self.tier2.discord_id] # Tier 2
+            'roles' : [self.tier2.discord_id], # Tier 2
+            'mode' : 'FRIENDLIES'
         }
 
         body_razenokis = {            
             'guild' : self.guild.discord_id,
             'created_by' : self.razen.discord_id, # Razen            
             'min_tier' : self.tier2.channel_id,  # Tier 2 channel            
-            'roles' : [self.tier1.discord_id] # Tier 1            
+            'roles' : [self.tier1.discord_id], # Tier 1
+            'mode' : 'FRIENDLIES'
         }
         
         search_response = client.post('/arenas/', body_tropped, format='json')
@@ -131,7 +136,9 @@ class ArenaTestCase(TestCase):
             'created_by' : self.tropped.discord_id, # Tropped            
             'min_tier' : self.tier3.channel_id,  # Tier 3 channel
             'roles' : [self.tier2.discord_id], # Tier 2
-            'force_tier': True
+            'force_tier': True,
+            'mode' : 'FRIENDLIES'
+
         }
 
         # Create        

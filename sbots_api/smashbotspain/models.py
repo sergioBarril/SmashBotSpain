@@ -99,7 +99,6 @@ class Player(models.Model):
         """
         return self.tiers.filter(guild=guild).first()
 
-
     def status(self):
         """
         Returns the status of the player
@@ -111,15 +110,33 @@ class Player(models.Model):
             if ArenaPlayer.objects.filter(player=self, status=status):
                 return status
         return False
-            
+
+    def search_ranked(self, guild):
+        """
+        Search compatible ranked arenas.
+
+        TODO: Add MMR constraints
+        """
+        arenas = Arena.objects.filter(guild=guild)
+        arenas = arenas.filter(status="SEARCHING")
+        arenas = arenas.filter(mode="RANKED")
+        arenas = arenas.exclude(created_by=self)
+
+        # CHECK REJECTED
+        my_arena = Arena.objects.filter(created_by=self, status="SEARCHING", mode="RANKED").first()
+        if my_arena is not None:
+            arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
+        return arenas
+
     def search(self, min_tier, max_tier, guild, invite=False):
         arenas = Arena.objects.filter(guild=guild)
         arenas = arenas.filter(status="SEARCHING")
+        arenas = arenas.filter(mode = "FRIENDLIES")
         arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)
 
         if not invite:
             arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
-            arenas = arenas.exclude(created_by=self)        
+            arenas = arenas.exclude(created_by=self)
         
         arenas = arenas.exclude(rejected_players=self)
         my_status = "PLAYING" if invite else "SEARCHING"
@@ -128,6 +145,27 @@ class Player(models.Model):
             arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
         
         return arenas
+    
+    def confirmation(self, confirmation_arena):
+        """
+        A match has been found in <<confirmation_arena>>.
+        Sets all other arenas of the player in waiting, and declines current invitations.
+        """
+        my_other_arenas = Arena.objects.filter(created_by=self).exclude(id=confirmation_arena.id).all()
+
+        for arena in my_other_arenas:
+            arena.set_status(status="WAITING")
+
+        # REMOVE INVITATIONS
+        for ap in ArenaPlayer.objects.filter(player=self, status="INVITED").all():
+            ap.delete()
+
+
+            
+
+
+
+
 
 class GameSet(models.Model):    
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
