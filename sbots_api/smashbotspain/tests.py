@@ -58,8 +58,8 @@ class ArenaTestCase(TestCase):
         }
         
         response = client.post('/arenas/', body, format='json')
-
-        result = json.loads(response.content)
+        
+        result = json.loads(response.content)        
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn('id', result)       
         self.assertEqual(result['status'], 'SEARCHING')
@@ -245,8 +245,11 @@ class ArenaTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
         self.assertEqual(result['player_id'], self.tropped.discord_id)
-        self.assertEqual(result['searching_player'], self.razen.discord_id)
-        self.assertEqual(result['tiers'], CORRECT_TIERS)
+
+        for arena in result['arenas']:
+            self.assertEqual(arena['mode'], 'FRIENDLIES')
+            self.assertEqual(arena['searching_player'], self.razen.discord_id)
+            self.assertEqual(arena['tiers'], CORRECT_TIERS)
 
     def test_rejected(self):
         client = APIClient()
@@ -293,8 +296,11 @@ class ArenaTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
         self.assertEqual(result['player_id'], self.tropped.discord_id)
-        self.assertEqual(result['searching_player'], self.razen.discord_id)
-        self.assertEqual(result['tiers'], CORRECT_TIERS)
+        
+        for arena in result['arenas']:
+            self.assertEqual(arena['mode'], 'FRIENDLIES')
+            self.assertEqual(arena['searching_player'], self.razen.discord_id)
+            self.assertEqual(arena['tiers'], CORRECT_TIERS)
 
     def test_rejected_reverse(self):
         client = APIClient()
@@ -303,6 +309,9 @@ class ArenaTestCase(TestCase):
         # Before rejecting
         arena = Arena.objects.filter(status="CONFIRMATION").first()
         waiting_arena = Arena.objects.filter(created_by=self.razen).first()
+
+        self.assertEqual(arena.mode, "FRIENDLIES")
+        self.assertEqual(waiting_arena.mode, "FRIENDLIES")
 
         self.assertEqual(arena.created_by, self.tropped)        
         self.assertEqual(waiting_arena.status, "WAITING")
@@ -341,8 +350,132 @@ class ArenaTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(result['player_accepted'])
         self.assertEqual(result['player_id'], self.razen.discord_id)
-        self.assertEqual(result['searching_player'], self.tropped.discord_id)
-        self.assertEqual(result['tiers'], CORRECT_TIERS)
+        
+        for arena in result['arenas']:
+            self.assertEqual(arena['mode'], "FRIENDLIES")
+            self.assertEqual(arena['searching_player'], self.tropped.discord_id)
+            self.assertEqual(arena['tiers'], CORRECT_TIERS)
+
+
+    # **************************************
+    #           R  A  N  K  E  D
+    # **************************************
+    def test_ranked_matched(self):    
+        client = APIClient()
+
+        body_tropped = {            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id, # Tropped
+            'roles' : [self.tier2.discord_id], # Tier 2
+            'mode' : 'RANKED'
+        }
+
+        body_razenokis = {
+            'guild' : self.guild.discord_id,
+            'created_by' : self.razen.discord_id, # Razen            
+            'roles' : [self.tier1.discord_id], # Tier 1
+            'mode' : 'RANKED'
+        }
+        
+        search_response = client.post('/arenas/ranked/', body_tropped, format='json')        
+        match_response = client.post('/arenas/ranked/', body_razenokis, format='json')        
+        result = json.loads(match_response.content)
+
+        self.assertEqual(match_response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(result.get('match_found'))
+
+        self.assertEqual(result.get('player_one'), self.tropped.discord_id)
+        self.assertEqual(result.get('player_two'), self.razen.discord_id)
+
+    def test_ranked_search(self):
+        client = APIClient()
+
+        body = {            
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id,            
+            'roles' : [self.tier2.discord_id], # Tier 2
+            'mode' : 'RANKED'
+        }
+        
+        response = client.post('/arenas/ranked/', body, format='json')
+
+        result = json.loads(response.content)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)        
+
+    def test_ranked_already_searching(self):
+        self.test_ranked_search()
+        client = APIClient()
+        
+        body = {
+            'guild' : self.guild.discord_id,
+            'created_by' : self.tropped.discord_id,            
+            'roles' : [self.tier2.discord_id],  # Tier 2
+            'mode' : 'RANKED'
+        }
+
+        response = client.post('/arenas/ranked/', body, format='json')
+        result = json.loads(response.content)
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(result.get('cant_join'), "ALREADY_SEARCHING")
+
+    def test_ranked_accepted(self):
+        client = APIClient()
+        self.test_ranked_matched()
+
+        # Before accepting
+        arena = Arena.objects.filter(status="CONFIRMATION").first()        
+
+        arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()
+        arena_razen = arena.arenaplayer_set.filter(player=self.razen).get()
+        
+        self.assertEqual(arena_tropped.status, "CONFIRMATION")
+        self.assertEqual(arena_razen.status, "CONFIRMATION")
+        
+        body = {'accepted': True}
+        
+        # After one accepts
+        response = client.patch(f'/players/{self.tropped.discord_id}/confirmation/', body, format='json')
+        result = json.loads(response.content)
+                
+        arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()        
+        self.assertTrue(result['player_accepted'])        
+        self.assertEqual(arena_tropped.status, "ACCEPTED")
+        self.assertFalse(result['all_accepted'])
+
+        obsolete_arena = Arena.objects.filter(status="WAITING").first()
+        self.assertIsNotNone(obsolete_arena)
+        self.assertEqual(len(ArenaPlayer.objects.all()), 3)
+
+        # After the other accepts
+        response = client.patch(f'/players/{self.razen.discord_id}/confirmation/', body, format='json')
+        result = json.loads(response.content)
+
+        arena_razen = arena.arenaplayer_set.filter(player=self.razen).get()
+        arena_tropped = arena.arenaplayer_set.filter(player=self.tropped).get()
+        
+        self.assertTrue(result['player_accepted'])
+        self.assertEqual(arena_razen.status, "PLAYING")
+        self.assertEqual(arena_tropped.status, "PLAYING")
+        self.assertTrue(result['all_accepted'])
+
+        arena = Arena.objects.get(created_by=self.tropped)
+        self.assertEqual(arena.status, "PLAYING")
+
+        self.assertIsNotNone(arena.game_set)
+
+        obsolete_arena = Arena.objects.filter(status="WAITING").first()
+        self.assertIsNone(obsolete_arena)
+        self.assertEqual(len(ArenaPlayer.objects.all()), 2)
+
+    def test_ranked_and_friendlies_search(self):
+        self.test_ranked_search()
+        self.test_friendlies_search()
+
+        tropped_arenas = Arena.objects.filter(created_by=self.tropped).all()
+
+        self.assertEqual(len(tropped_arenas), 2)
+        for arena in tropped_arenas:
+            self.assertEqual(arena.status, "SEARCHING")    
 
 class MessageTestCase(TestCase):
     def setUp(self):

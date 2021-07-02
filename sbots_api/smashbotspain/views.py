@@ -6,7 +6,7 @@ from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
 
 from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer
-from smashbotspain.serializers import (PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
+from smashbotspain.serializers import (GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
                                         MainSerializer, RegionSerializer, CharacterSerializer)
 
 from smashbotspain.aux_methods.roles import normalize_character
@@ -325,6 +325,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
             if accepted:
                 ggs_player = ArenaPlayer.objects.filter(status="GGS", player=player, arena=arena).first()
                 
+                # Remove the AP born with the invitation, just change the status to the old one
                 if ggs_player is not None:
                     arena_player, ggs_player = ggs_player, arena_player
                     ggs_player.delete()
@@ -332,14 +333,19 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 arena_player.status = "PLAYING"
                 arena_player.save()
 
-                guest_arena = Arena.objects.filter(created_by=player, status="SEARCHING").first()
-                messages = guest_arena.message_set.all()
+                guest_arenas = Arena.objects.filter(created_by=player, status="SEARCHING").all()
+                
+                # Fetch the messages of all other arenas
+                messages = []
+                for guest_arena in guest_arenas:
+                    messages += list(guest_arena.message_set.all())
                 
                 for message in messages:
                     message.arena = arena
                     message.save()
                 
-                guest_arena.delete()
+                for guest_arena in guest_arenas:
+                    guest_arena.delete()
 
                 players = arena.get_players()
 
@@ -365,48 +371,70 @@ class PlayerViewSet(viewsets.ModelViewSet):
         
         # Rejected
         if not accepted:
-            searching_arena = None
+            searching_arenas = []
             other_accepted = other_player.status() == "ACCEPTED"
             
             if player == arena.created_by:
-                other_arena = Arena.objects.filter(created_by=other_player, status="WAITING").first()
-                other_arena.set_status("SEARCHING")
-                searching_arena = other_arena
+                other_arenas = Arena.objects.filter(created_by__in=players, status="WAITING").exclude(id=arena.id)
+                for other_arena in other_arenas:
+                    other_arena.set_status("SEARCHING")
+                    searching_arenas.append(other_arena)
                 arena.delete()
             else:
                 arena_player.delete()
-                other_arena = Arena.objects.filter(created_by=player, status="WAITING").first()
-                arena.set_status("SEARCHING")
-                searching_arena = arena                
-                other_arena.delete()            
-                        
-            if is_timeout and not other_accepted:
-                searching_arena.delete()
-                searching_arena = None
-            elif not is_timeout:
-                searching_arena.rejected_players.add(player)
-                searching_arena.save()
+                
+                rejected_arena = Arena.objects.filter(created_by=player, status="WAITING", mode=arena.mode).first()
+                rejected_arena.delete()
+                
+                other_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "CONFIRMATION")).all()
+                for arena_to_search in other_arenas:
+                    arena_to_search.set_status("SEARCHING")
+                    searching_arenas.append(arena_to_search)
+
+            # TIMEOUT
+            if is_timeout:                
+                if not other_accepted:  # No one responded
+                    for searching_arena in searching_arenas:
+                        searching_arena.delete()
+                    searching_arenas = []
+                else: # Only current player timed out
+                    player_arenas = Arena.objects.filter(created_by=player).all()
+                    for searching_arena in player_arenas:
+                        searching_arena.delete()
+                    searching_arenas = list(Arena.objects.filter(created_by=other_player).all())
+            else:
+                for searching_arena in searching_arenas:                    
+                    searching_arena.rejected_players.add(player)
+                    searching_arena.save()
 
             response_body = {
                 'player_accepted': False,
                 'timeout': is_timeout,
                 'player_id' : player.discord_id,
-            }             
-
-            if searching_arena is None:
-                response_body['arena_id'] = None
-            else:
-                tiers = searching_arena.get_tiers()
-                
-                response_body.update({
+                'arenas': []
+            }
+                        
+            for searching_arena in searching_arenas:
+                response_arena = {
                     'arena_id' : searching_arena.id,
                     'searching_player': searching_arena.created_by.discord_id,
-                    'min_tier': searching_arena.min_tier.discord_id,
-                    'max_tier': searching_arena.max_tier.discord_id,
-                    'tiers': [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
-                })            
+                    'mode': searching_arena.mode
+                }
+                
+                if searching_arena.mode == "FRIENDLIES":
+                    tiers = searching_arena.get_tiers()
+                
+                    response_arena.update({
+                        'min_tier': searching_arena.min_tier.discord_id,
+                        'max_tier': searching_arena.max_tier.discord_id,
+                        'tiers': [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
+                    })
+
+                response_body['arenas'].append(response_arena)
             return Response(response_body, status=status.HTTP_200_OK)
         
+
+        #   ACCEPTED
         serializer = ArenaPlayerSerializer(arena_player, data={'status' : 'ACCEPTED'}, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -431,6 +459,20 @@ class PlayerViewSet(viewsets.ModelViewSet):
             for arena_player in arena_players:
                 arena_player.set_status("PLAYING")            
             arena.set_status("PLAYING")
+
+            # Create GameSet if RANKED
+            if arena.mode == "RANKED":
+                serializer = GameSetSerializer(data={
+                    'guild': arena.guild.id,
+                    'players': [player.id for player in arena.players.all()]
+                })
+                if serializer.is_valid():
+                    game_set = serializer.save()
+                else:
+                    return Response(serializer.errors,  status=status.HTTP_400_BAD_REQUEST)
+                
+                arena.game_set = game_set
+                arena.save()
 
             #  Delete "search" arenas
             obsolete_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "SEARCHING"))
@@ -768,7 +810,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         my_ranked = Arena.objects.filter(created_by=player, mode="RANKED", status="SEARCHING").first()
         player_status = "ALREADY_SEARCHING" if my_ranked else player.status()
         
-        if player_status in ArenaPlayer.CANT_JOIN_STATUS :
+        if player_status in ArenaPlayer.CANT_JOIN_STATUS or player_status == "ALREADY_SEARCHING" :
             return Response({"cant_join" : player_status}, status=status.HTTP_409_CONFLICT)
 
         # Create my ranked arena
@@ -850,7 +892,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         # Update search
         old_arena = None
         try:
-            old_arena = Arena.objects.filter(created_by=player, status="SEARCHING").get()
+            old_arena = Arena.objects.filter(created_by=player, status="SEARCHING", mode="FRIENDLIES").get()
 
             # Get added and removed tiers
             old_tiers = Tier.objects.filter(weight__gte=old_arena.min_tier.weight, weight__lte=old_arena.max_tier.weight)

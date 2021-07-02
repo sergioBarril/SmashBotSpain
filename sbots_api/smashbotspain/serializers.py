@@ -69,8 +69,8 @@ class GameSetSerializer(serializers.ModelSerializer):
     guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all(), many=False)
     players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True)
 
-    win_condition = serializers.CharField(default="BO3")
-    winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=False)
+    win_condition = serializers.CharField(default="BO5")
+    winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=False, required=False)
 
     class Meta:
         model = GameSet
