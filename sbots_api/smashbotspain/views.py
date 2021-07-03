@@ -651,6 +651,27 @@ class GuildViewSet(viewsets.ModelViewSet):
         
         return Response(response, status=status.HTTP_200_OK)        
 
+    @action(detail=False)
+    def ranked_messages(self, request):
+        """
+        Sends the information about the ranked channels and messages of all guilds.
+        """
+        guilds = Guild.objects.all()
+
+        response = []
+        for guild in guilds:
+            info = {
+                'guild_id': guild.discord_id,
+                'channel_id': guild.ranked_channel,
+                'message_id': guild.ranked_message,
+            }
+            response.append(info)
+        
+        return Response({'guilds': response}, status=status.HTTP_200_OK)
+
+
+
+
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()
     serializer_class = ArenaSerializer

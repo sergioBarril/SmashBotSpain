@@ -31,6 +31,46 @@ class Matchmaking(commands.Cog):
     async def setup_matchmaking(self):        
         self.reset_matchmaking.start()
         await self.reset_arenas(startup=True)
+        await self.ranked_messages()
+
+    async def wait_ranked_emojis(self, message):
+        def check(payload):
+            return str(payload.emoji) in [EMOJI_CONFIRM, EMOJI_REJECT] and payload.message_id == message.id and payload.user_id != self.bot.user.id        
+        
+        await asyncio.gather(message.add_reaction(EMOJI_CONFIRM), message.add_reaction(EMOJI_REJECT))
+        logger.info(f"Ranked message in guild {message.guild} ready.")
+        while True:
+            raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
+            asyncio.create_task(message.remove_reaction(raw_reaction.emoji, raw_reaction.member))
+            logger.info(f"{raw_reaction.member.nickname()} ha reaccionado con {'ACEPTAR' if str(raw_reaction.emoji) == EMOJI_CONFIRM else 'RECHAZAR'}")
+            asyncio.create_task(self.test_sleep())
+
+    async def test_sleep(self):
+        await asyncio.sleep(10)
+        print("I'm awake!")
+
+    async def ranked_messages(self):
+        guilds = []
+        async with self.bot.session.get(f'http://127.0.0.1:8000/guilds/ranked_messages/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+                guilds = resp_body.get('guilds')
+        
+        if not guilds:
+            return logger.error("ERROR - No guilds available.")
+        
+        messages = []
+        
+        for guild_info in guilds:
+            guild = self.bot.get_guild(guild_info['guild_id'])
+            channel = guild.get_channel(guild_info['channel_id'])
+            message = await channel.fetch_message(guild_info['message_id'])
+            messages.append(message)
+
+        wait_tasks = [asyncio.create_task(self.wait_ranked_emojis(message)) for message in messages]
+        
+        await asyncio.gather(*wait_tasks)
 
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(player_exists)
@@ -51,7 +91,8 @@ class Matchmaking(commands.Cog):
             'created_by' : player.id,            
             'min_tier' : ctx.channel.id,            
             'roles' : [role.id for role in player.roles],
-            'force_tier' : is_force_tier
+            'force_tier' : is_force_tier,
+            'mode': 'FRIENDLIES'
         }
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/', json=body) as response:            

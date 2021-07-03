@@ -13,6 +13,8 @@ class Guild(models.Model):
     flairing_channel = models.BigIntegerField(null=True, blank=True)
     list_channel = models.BigIntegerField(null=True, blank=True)
     list_message = models.BigIntegerField(null=True, blank=True)
+    ranked_channel = models.BigIntegerField(null=True, blank=True)
+    ranked_message = models.BigIntegerField(null=True, blank=True)
     
     match_timeout = models.IntegerField(default=600,
         validators=[
