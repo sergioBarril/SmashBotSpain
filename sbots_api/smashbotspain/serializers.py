@@ -101,6 +101,30 @@ class GamePlayer(serializers.ModelSerializer):
         model = GamePlayer
         fields = '__all__'
 
+
+class TierSerializer(serializers.ModelSerializer):
+    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
+    class Meta:
+        model = Tier
+        fields = ('discord_id', 'weight', 'channel_id', 'guild')
+        lookup_field = 'discord_id'
+        extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
+
+class MessageSerializer(serializers.ModelSerializer):    
+    tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all(), required=False)
+    
+    def create(self, validated_data):                
+        message = Message.objects.create(**validated_data)
+        if message.tier is not None:
+            message.channel_id = message.tier.channel_id
+            message.save()
+        return message
+    
+    class Meta:
+        model = Message
+        fields = '__all__'
+
+
 class ArenaSerializer(serializers.ModelSerializer):    
     guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
     created_by = serializers.SlugRelatedField(slug_field="discord_id", queryset=Player.objects.all())
@@ -113,7 +137,7 @@ class ArenaSerializer(serializers.ModelSerializer):
 
     players = serializers.SlugRelatedField(slug_field="discord_id", many=True, required=False, read_only=True)
 
-    messages = serializers.PrimaryKeyRelatedField(queryset=Message.objects.all(), required=False)
+    message_set = MessageSerializer(required=False, many=True, read_only=True)
     
     def create(self, validated_data):
         new_arena = Arena.objects.create(**validated_data)        
@@ -142,7 +166,8 @@ class ArenaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Arena
-        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'guild', 'created_by', 'players', 'channel_id', 'messages')
+        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'guild', 'created_by', 'players', 'channel_id', 'message_set')
+        depth = 2
 
 class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())
@@ -151,21 +176,6 @@ class ArenaPlayerSerializer(serializers.ModelSerializer):
     class Meta:
         model = ArenaPlayer
         fields = ('arena', 'player', 'status')
-
-class TierSerializer(serializers.ModelSerializer):
-    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
-    class Meta:
-        model = Tier
-        fields = ('discord_id', 'weight', 'channel_id', 'guild')
-        lookup_field = 'discord_id'
-        extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
-
-class MessageSerializer(serializers.ModelSerializer):    
-    tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
-    
-    class Meta:
-        model = Message
-        fields = ('id', 'tier', 'arena')
 
 class GuildSerializer(serializers.ModelSerializer):    
     class Meta:

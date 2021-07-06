@@ -130,11 +130,11 @@ class Player(models.Model):
             arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
         return arenas
 
-    def search(self, min_tier, max_tier, guild, invite=False):
-        arenas = Arena.objects.filter(guild=guild)
-        arenas = arenas.filter(status="SEARCHING")
-        arenas = arenas.filter(mode = "FRIENDLIES")
-        arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)
+    def search(self, min_tier, max_tier, guild, invite=False):        
+        arenas = Arena.objects.filter(guild=guild)        
+        arenas = arenas.filter(status="SEARCHING")        
+        arenas = arenas.filter(mode = "FRIENDLIES")        
+        arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)        
 
         if not invite:
             arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
@@ -298,6 +298,25 @@ class Arena(models.Model):
         
         return players
 
+    def get_messages(self):
+        """
+        Returns the info of all messages related to this arena
+        """
+        messages = Message.objects.filter(arena=self).all()
+        message_response = [
+            {
+                'id': message.id,
+                'arena': message.arena.id,
+                'tier': message.tier.id if message.tier else None,
+                'channel_id': message.channel_id,
+                'mode': message.mode
+            }
+            
+            for message in messages
+        ]
+        return message_response
+        
+
 
     def set_status(self, status):
         """
@@ -354,6 +373,13 @@ class GamePlayer(models.Model):
         return f"[{self.game}]: {self.player}({self.character})"
 
 class Message(models.Model):
+    MODE = [
+        ("FRIENDLIES", "Friendlies"),
+        ("RANKED", "Ranked")
+    ]
+
     id = models.BigIntegerField(primary_key=True)
-    tier = models.ForeignKey(Tier, on_delete=models.CASCADE)
+    tier = models.ForeignKey(Tier, on_delete=models.CASCADE, null=True)
+    channel_id = models.BigIntegerField(null=True)
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE)
+    mode = models.CharField(max_length=10, choices=MODE, default="FRIENDLIES")

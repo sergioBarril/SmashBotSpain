@@ -17,34 +17,37 @@ def make_player(discord_id, tier=None):
     )
     player.save()
     if tier:
-        tier.player_set.add(player)
+        player.tiers.add(tier)
+        player.save()
+    
     return player
 
-def make_tier(discord_id, channel_id, weight):
+def make_tier(discord_id, channel_id, weight, guild):
     tier = Tier(
         discord_id=discord_id,        
         channel_id = channel_id,
-        weight = weight
+        weight = weight,
+        guild = guild
     )
     tier.save()
     return tier
 
 class ArenaTestCase(TestCase):    
     def setUp(self):
-        # Setup Players        
-        self.tropped = make_player(discord_id=12345678987654)
-        self.razen = make_player(discord_id=45678987654321)        
-        
-        # Setup Tiers
-        self.tier1 = make_tier(discord_id=45678987654, channel_id=94939382, weight=4)
-        self.tier2 = make_tier(discord_id=54678987654, channel_id=9393938, weight=3)
-        self.tier3 = make_tier(discord_id=54678987655, channel_id=4848484, weight=2)
-        self.tier4 = make_tier(discord_id=54678987656, channel_id=1231566, weight=1)
-
         # Setup Guild
         self.guild = Guild(discord_id=1284839194, spam_channel=183813893, flairing_channel=3814884,
             list_channel=1190139, list_message=1949194, match_timeout=90, cancel_time=30, ggs_time=15)
         self.guild.save()
+        
+        # Setup Tiers
+        self.tier1 = make_tier(discord_id=45678987654, channel_id=94939382, weight=4, guild=self.guild)
+        self.tier2 = make_tier(discord_id=54678987654, channel_id=9393938, weight=3, guild=self.guild)
+        self.tier3 = make_tier(discord_id=54678987655, channel_id=4848484, weight=2, guild=self.guild)
+        self.tier4 = make_tier(discord_id=54678987656, channel_id=1231566, weight=1, guild=self.guild)
+
+        # Setup Players        
+        self.tropped = make_player(discord_id=12345678987654, tier=self.tier2)
+        self.razen = make_player(discord_id=45678987654321, tier=self.tier1)
 
     def test_friendlies_search(self):
         client = APIClient()
