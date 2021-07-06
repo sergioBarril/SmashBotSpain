@@ -72,6 +72,19 @@ class GameSetSerializer(serializers.ModelSerializer):
     win_condition = serializers.CharField(default="BO5")
     winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=False, required=False)
 
+    # def create(self, validated_data):
+        # new_game_set = GameSet.objects.create(**validated_data)
+        # game = {
+        #     'players': [player.id for player in new_game_set.players.all()],
+        #     'guild' : [new_game_set.guild.id],
+        #     'game_set' : new_game_set.id,
+        # }
+        
+        # game_serializer = GameSerializer(data=game)
+        # if game_serializer.is_valid():
+        #     game_serializer.save()
+        # return new_game_set
+
     class Meta:
         model = GameSet
         fields = '__all__'

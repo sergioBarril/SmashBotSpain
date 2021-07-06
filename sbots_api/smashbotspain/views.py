@@ -6,7 +6,7 @@ from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
 
 from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer
-from smashbotspain.serializers import (GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
+from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
                                         MainSerializer, RegionSerializer, CharacterSerializer)
 
 from smashbotspain.aux_methods.roles import normalize_character
@@ -508,9 +508,9 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 })
                 if serializer.is_valid():
                     game_set = serializer.save()
+                    game_set.add_game()
                 else:
                     return Response(serializer.errors,  status=status.HTTP_400_BAD_REQUEST)
-                
                 arena.game_set = game_set
                 arena.save()
 
@@ -549,6 +549,80 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
         arena.add_player(player, status="INVITED")
         return Response(status=status.HTTP_200_OK)
+    
+
+    @action(detail=True, methods=['post'])
+    def stage(self, request, discord_id):
+        """
+        Sets the stage of the current game.
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set stage
+        game.stage = request.data['stage']
+        game.save()
+
+        return Response(status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def character(self, request, discord_id):
+        """
+        Sets the character this player will play this game
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set the character
+        game_player = game.gameplayer_set.filter(player=player)
+        game_player.character = request.data['character']
+        game_player.save()
+
+        return Response(status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def win_game(self, request, discord_id):
+        """
+        Marks the current game as a victory.
+        Needs the player to be playing a ranked match.
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        game_set = game.game_set
+        
+        # Set winner and check if ggs
+        game.set_winner(player)
+        is_over = game_set.set_winner()
+
+        if is_over:
+            # Close arena? Give option to keep doing friendlies? Rematch?
+            pass 
+        else:
+            game_set.add_game()
+
+        response = {
+            'finished': is_over            
+        }
+        
+        return Response(response, status=status.HTTP_200_OK)
+
+
+
+
+
+
+        
+
 
 class RegionViewSet(viewsets.ModelViewSet):
     queryset = Region.objects.all()
@@ -732,9 +806,6 @@ class GuildViewSet(viewsets.ModelViewSet):
             response.append(info)
         
         return Response({'guilds': response}, status=status.HTTP_200_OK)
-
-
-
 
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()

@@ -163,7 +163,22 @@ class Player(models.Model):
         for ap in ArenaPlayer.objects.filter(player=self, status="INVITED").all():
             ap.delete()
 
+    def get_game(self):
+        """
+        Returns the current game this player is playing.
+        """
+        arena_player = ArenaPlayer.objects.filter(player=self, status="PLAYING")
+        arena = arena_player.arena
+        
+        if arena.mode != "RANKED":
+            return False
+        
+        game_set = arena.game_set
 
+        # Get current game
+        game = Game.objects.filter(game_set=game_set, winner=None).first()
+        
+        return game
             
 
 
@@ -184,6 +199,17 @@ class GameSet(models.Model):
     win_condition = models.CharField(max_length=40, choices=WIN_CONDITIONS)
     winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_set")
 
+
+    def add_game(self):
+        game = Game(guild=self.guild, game_set=self)
+        game.save()
+
+        for player in self.players.all():
+            game_player = GamePlayer(player=player, game=game)
+            game_player.save()
+    
+        return game
+    
     def set_winner(self):
         """
         Checks if there's already a winner. If there is, it is set, and True is returned.
@@ -212,6 +238,7 @@ class GameSet(models.Model):
                 self.winner = player
                 self.save()
                 return True
+        return False
 
 class Game(models.Model):
     players = models.ManyToManyField(Player, through="GamePlayer")
@@ -222,6 +249,21 @@ class Game(models.Model):
     
     winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_game")
     winner_character = models.CharField(max_length=50, null=True, blank=True)
+
+    def set_winner(self, player):
+        """
+        Sets the winner of this game, modifying as well the GamePlayer object
+        """        
+        # Sets winner GamePlayer
+        game_player = self.gameplayer_set.filter(player=player).first()
+        game_player.winner = True
+        game_player.save()
+
+        self.winner = player
+        self.winner_character = game_player.character        
+        
+        self.save()
+
 
 class Main(models.Model):
     MAIN_SECOND = [
