@@ -122,6 +122,7 @@ class Player(models.Model):
         arenas = Arena.objects.filter(guild=guild)
         arenas = arenas.filter(status="SEARCHING")
         arenas = arenas.filter(mode="RANKED")
+        arenas = arenas.filter(tier=self.tier(guild))
         arenas = arenas.exclude(created_by=self)
 
         # CHECK REJECTED
@@ -255,9 +256,13 @@ class Arena(models.Model):
     status = models.CharField(max_length=12, choices=STATUS, default="SEARCHING")
     mode = models.CharField(max_length=10, choices=MODE, default="FRIENDLIES")
     
+    # Friendlies fields
     max_tier = models.ForeignKey(Tier, null=True, related_name="max_tier", on_delete=models.SET_NULL)
     min_tier = models.ForeignKey(Tier, null=True, related_name="min_tier", on_delete=models.SET_NULL)
     
+    # Ranked field
+    tier = models.ForeignKey(Tier, null=True, related_name="tier", on_delete=models.SET_NULL)
+
     channel_id = models.BigIntegerField(null=True, blank=True)
 
     game_set = models.ForeignKey(GameSet, null=True, on_delete=models.SET_NULL)

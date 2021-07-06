@@ -905,7 +905,8 @@ class ArenaViewSet(viewsets.ModelViewSet):
             'guild' : guild.discord_id,
             'created_by': player.discord_id,
             'mode': 'RANKED',
-            'status': 'WAITING'
+            'status': 'WAITING',
+            'tier': player.tier(guild).discord_id
         }
         arena_serializer = ArenaSerializer(data=arena_data)
         if arena_serializer.is_valid():
