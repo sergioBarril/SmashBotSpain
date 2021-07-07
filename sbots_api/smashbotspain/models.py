@@ -167,102 +167,19 @@ class Player(models.Model):
         """
         Returns the current game this player is playing.
         """
-        arena_player = ArenaPlayer.objects.filter(player=self, status="PLAYING")
+        arena_player = ArenaPlayer.objects.filter(player=self, status="PLAYING").first()
         arena = arena_player.arena
         
         if arena.mode != "RANKED":
             return False
         
-        game_set = arena.game_set
+        game_set = arena.gameset_set.first()
 
         # Get current game
         game = Game.objects.filter(game_set=game_set, winner=None).first()
         
         return game
             
-
-
-
-
-
-class GameSet(models.Model):    
-    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
-    players = models.ManyToManyField(Player)
-
-    WIN_CONDITIONS = [
-        ("BO3", "BO3"),
-        ("BO5", "BO5"),
-        ("FT5", "FT5"),
-        ("FT10", "FT10"),
-    ]
-    
-    win_condition = models.CharField(max_length=40, choices=WIN_CONDITIONS)
-    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_set")
-
-
-    def add_game(self):
-        game = Game(guild=self.guild, game_set=self)
-        game.save()
-
-        for player in self.players.all():
-            game_player = GamePlayer(player=player, game=game)
-            game_player.save()
-    
-        return game
-    
-    def set_winner(self):
-        """
-        Checks if there's already a winner. If there is, it is set, and True is returned.
-        
-        Returns True if there's a winner, False if no winner is set.
-        """
-        first_to = None
-        games = self.game_set.all()
-        
-        # SET NUM OF WINS
-        if self.win_condition == "BO3":
-            first_to = 2
-        elif self.win_condition == "BO5":
-            first_to = 3
-        elif self.win_condition == "FT5":
-            first_to = 5
-        elif self.win_condition == "FT10":
-            first_to = 10
-        else:
-            return None
-        
-        # SET WINNER:
-        for player in self.players.all():
-            win_count = self.game_set.filter(winner=player).count()
-            if win_count >= self.win_condition:
-                self.winner = player
-                self.save()
-                return True
-        return False
-
-class Game(models.Model):
-    players = models.ManyToManyField(Player, through="GamePlayer")
-    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
-    
-    game_set = models.ForeignKey(GameSet, null=True, on_delete=models.CASCADE)
-    stage = models.CharField(max_length=50, null=True, blank=True)
-    
-    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_game")
-    winner_character = models.CharField(max_length=50, null=True, blank=True)
-
-    def set_winner(self, player):
-        """
-        Sets the winner of this game, modifying as well the GamePlayer object
-        """        
-        # Sets winner GamePlayer
-        game_player = self.gameplayer_set.filter(player=player).first()
-        game_player.winner = True
-        game_player.save()
-
-        self.winner = player
-        self.winner_character = game_player.character        
-        
-        self.save()
 
 
 class Main(models.Model):
@@ -306,8 +223,6 @@ class Arena(models.Model):
     tier = models.ForeignKey(Tier, null=True, related_name="tier", on_delete=models.SET_NULL)
 
     channel_id = models.BigIntegerField(null=True, blank=True)
-
-    game_set = models.ForeignKey(GameSet, null=True, on_delete=models.SET_NULL)
 
     players = models.ManyToManyField(Player, through="ArenaPlayer", blank=True)
     rejected_players = models.ManyToManyField(Player, blank=True, related_name="rejected_players")
@@ -408,6 +323,103 @@ class ArenaPlayer(models.Model):
 
     def __str__(self):
         return f"{self.player} in {self.arena}"
+
+class GameSet(models.Model):    
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
+    players = models.ManyToManyField(Player)
+
+    WIN_CONDITIONS = [
+        ("BO3", "BO3"),
+        ("BO5", "BO5"),
+        ("FT5", "FT5"),
+        ("FT10", "FT10"),
+    ]
+    
+    win_condition = models.CharField(max_length=40, choices=WIN_CONDITIONS)
+    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_set")    
+    arena = models.ForeignKey(Arena, null=True, on_delete=models.SET_NULL)
+
+    def add_game(self):
+
+        game_number = Game.objects.filter(game_set=self).count()
+
+        game = Game(number= game_number + 1, guild=self.guild, game_set=self)
+        game.save()
+
+        for player in self.players.all():
+            game_player = GamePlayer(player=player, game=game)
+            game_player.save()
+    
+        return game
+    
+    def set_winner(self):
+        """
+        Checks if there's already a winner. If there is, it is set, and True is returned.
+        
+        Returns True if there's a winner, False if no winner is set.
+        """
+        first_to = None
+        games = self.game_set.all()
+        
+        # SET NUM OF WINS
+        if self.win_condition == "BO3":
+            first_to = 2
+        elif self.win_condition == "BO5":
+            first_to = 3
+        elif self.win_condition == "FT5":
+            first_to = 5
+        elif self.win_condition == "FT10":
+            first_to = 10
+        else:
+            return None
+        
+        # SET WINNER:
+        for player in self.players.all():
+            win_count = self.game_set.filter(winner=player).count()
+            if win_count >= self.win_condition:
+                self.winner = player
+                self.save()
+                return True
+        return False
+
+
+class Stage(models.Model):
+    TYPES = [
+        ("STARTER", "Starter"),
+        ("COUNTERPICK", "Counterpick")
+    ]
+    
+    name = models.CharField(max_length=50)
+    emoji = models.CharField(max_length=100)
+    type = models.CharField(max_length=20, choices=TYPES)
+
+    def __str__(self):
+        return self.name
+
+class Game(models.Model):
+    number = models.IntegerField()
+    players = models.ManyToManyField(Player, through="GamePlayer")
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
+    
+    game_set = models.ForeignKey(GameSet, null=True, on_delete=models.CASCADE)
+    stage = models.ForeignKey(Stage, null=True, on_delete=models.SET_NULL)
+    
+    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_game")
+    winner_character = models.CharField(max_length=50, null=True, blank=True)    
+
+    def set_winner(self, player):
+        """
+        Sets the winner of this game, modifying as well the GamePlayer object
+        """        
+        # Sets winner GamePlayer
+        game_player = self.gameplayer_set.filter(player=player).first()
+        game_player.winner = True
+        game_player.save()
+
+        self.winner = player
+        self.winner_character = game_player.character        
+        
+        self.save()
 
 class GamePlayer(models.Model):
     player = models.ForeignKey(Player, on_delete=models.CASCADE)

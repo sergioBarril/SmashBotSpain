@@ -1,0 +1,352 @@
+import aiohttp
+import discord
+import asyncio
+import time
+import re
+import itertools
+import typing
+import traceback
+import random
+from collections import defaultdict
+from datetime import datetime, timedelta
+import json
+import logging
+
+from discord.ext import tasks, commands
+from discord.ext.commands.cooldowns import BucketType
+
+from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT, 
+                    EMOJI_HOURGLASS, NUMBER_EMOJIS)
+
+from .checks.flairing_checks import player_exists
+from .checks.matchmaking_checks import (in_arena, in_arena_or_ranked, in_tier_channel)
+
+from .aux_methods.roles import find_role
+
+
+logger = logging.getLogger('discord')
+
+class Ranked(commands.Cog):
+    """
+    This Cog handles the sets of ranked matches.
+    """
+    
+    def __init__(self, bot):
+        self.bot = bot
+    
+    def game_title(self, game_number):
+        """
+        Returns the text to write the corresponding title.
+        """
+        return f'*******************\n     G A M E  {game_number}\n*******************'
+
+    async def game_setup(self, player1, player2, channel, game_number):
+        await channel.send(f'```{self.game_title(game_number)}\n```')
+        is_first = game_number == 1
+
+        if is_first:
+            await channel.send(f'Escoged personajes -- os he enviado un MD.')
+
+        guild = channel.guild
+        players = (player1, player2)
+
+        guild_roles = await guild.fetch_roles()
+
+        await asyncio.gather(*[asyncio.create_task(self.character_pick(player, guild, channel, blind=is_first)) for player in players])
+
+        # Get characters
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player1.id}/game_info/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                game_players = resp_body['game_players']
+                
+            else:
+                html = await response.text()
+                await channel.send("No estás jugando ninguna partida.")
+                logger.error(f"Error in game_info: {html}")
+                return
+        
+        players_info = []
+        for gp in game_players:
+            player = guild.get_member(gp['player'])
+            char_role = find_role(gp['character'], guild_roles, only_chars=True)
+            
+            players_info.append({
+                'player' : player,
+                'char_role' : char_role
+            })
+
+        text = f"**Game {game_number}:**   "
+        text += " vs. ".join([f"{player['player'].nickname()} ({player['char_role'].emoji()})" for player in players_info])
+        await channel.send(text)
+
+        stage = await self.stage_strike(player1, player2, channel, is_first)
+
+        await channel.send("Hasta aquí esta demo!")
+
+
+
+        # Random player starts banning
+    
+    async def stage_strike(self, player1, player2, channel, is_first = False):        
+        asyncio.current_task().set_name(f"stagestrike-{player1.id}{player2.id}")
+
+        # Get stages
+        async with self.bot.session.get(f'http://127.0.0.1:8000/stages/') as response:
+            if response.status == 200:
+                html = await response.text()
+                stages = json.loads(html)
+            else:
+                html = await response.text()
+                await channel.send("Error al buscar los escenarios.")
+                logger.error(f"Error in get stages: {html}")
+                return False
+        
+        if is_first:
+            stages = [stage for stage in stages if stage.get('type', '') == 'STARTER']
+
+        def get_stage_text(next_player, open_stages, mode):
+            """
+            Returns the text that the message should be changed to.
+            """
+            action = "banear" if mode == "BAN" else "pickear"            
+
+            text = f"Le toca **{action.upper()}** a {next_player.mention}. Reacciona con el número de stage que quieres {action.lower()}.\n"
+            text += "\n".join([f"{r'~~' if stage not in open_stages else ''}{i + 1}.\
+                {stage['emoji']} {stage['name']}{r'~~' if stage not in open_stages else ''}"
+                for i, stage in enumerate(stages)])
+            return text
+
+        # Decide who bans first
+        ban_order = []
+        
+        if is_first:
+            players = [player1, player2]
+            first_ban = players.pop(random.randint(0, 1))
+            other_player = players[0]
+            ban_order = [first_ban, other_player, other_player, first_ban]
+        else:
+            
+            body = {'player_id': player1.id}
+            
+            async with self.bot.session.post(f'http://127.0.0.1:8000/games/last_winner/', json=body) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)                    
+                    first_ban = channel.guild.get_member(resp_body['last_winner'])
+                else:
+                    html = await response.text()
+                    await channel.send("Error al buscar el ganador del último game.")
+                    logger.error(f"Error in last_winner call: {html}")
+
+            other_player = player1 if first_ban.id == player2.id else player2            
+            ban_order = [first_ban, first_ban, first_ban, other_player]
+        
+        open_stages = list(stages.copy())
+        open_emojis = list(NUMBER_EMOJIS[:len(open_stages)])
+
+        # Send bans message
+        message = await channel.send(get_stage_text(first_ban, open_stages, mode="BAN"))
+
+        # React to message
+        emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in open_emojis]
+        asyncio.gather(*emoji_tasks)
+
+        # STRIKE PROCESS
+        for idx, strike_player in enumerate(ban_order):
+            def check(payload):
+                return str(payload.emoji) in open_emojis and payload.message_id == message.id and payload.user_id == strike_player.id
+
+            raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
+            
+            # Clear emojis
+            emoji = str(raw_reaction.emoji)
+            open_emojis.remove(emoji)
+            await message.clear_reaction(emoji)            
+
+            #  Update open_stages
+            open_stages = list(filter(lambda x: NUMBER_EMOJIS[stages.index(x)] != emoji, open_stages))
+
+            # Get next player
+            if idx + 1 < len(ban_order):
+                next_player = ban_order[idx + 1]
+                
+                # Last element in ban_order is actually pick if not is_first
+                mode = "PICK" if idx + 2 == len(ban_order) and not is_first else "BAN"
+                
+                # Update message
+                text = get_stage_text(next_player, open_stages, mode=mode)                
+                await message.edit(content=text)
+            else:
+                if not mode:
+                    mode = "BAN"
+                text = get_stage_text(ban_order[-1], open_stages, mode=mode)
+                await message.edit(content=text)
+        
+        if is_first:
+            stage = open_stages[0]
+        else:
+            stage = list(filter(lambda x: x['emoji'] == emoji, open_stages))[0]
+
+        
+        # SET STAGE
+        body = {
+            'player_id' : player1.id,
+            'stage_name': stage['name']
+        }
+
+        async with self.bot.session.post(f'http://127.0.0.1:8000/games/stage/', json=body) as response:
+            if response.status == 200:                
+                await channel.send(f"El combate tendrá lugar en **{stage['name']}** {stage['emoji']}")
+                return True
+            else:
+                html = await response.text()
+                await channel.send("Error al guardar el escenario.")
+                logger.error(f"Error in set stages.")
+                return False
+
+
+
+
+    @commands.command()
+    async def play(self, ctx, *, character_name):
+        """
+        Command to pick a character in case it's not in the reactions.
+        """
+        player = ctx.author
+        guild = ctx.guild
+        is_blind = guild is None
+
+        channel = ctx.channel
+
+        # Get guild id if in DMs
+        if not guild:
+            async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/game_info/') as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)
+
+                    # Get guild
+                    guild_id = resp_body['guild']
+                    guild = self.bot.get_guild(guild_id)
+
+                    # Get channel
+                    channel_id = resp_body['channel_id']
+                    if channel_id:
+                        channel = guild.get_channel(channel_id)
+                    else:
+                        channel = None
+
+                else:
+                    html = await response.text()
+                    await ctx.send("No estás jugando ninguna partida.")
+                    logger.error(f"Error in .play: {html}")
+                    return
+        
+        # Check that the character is legit
+        guild_roles = await guild.fetch_roles()
+        character_role = find_role(character_name, guild_roles, only_chars=True)        
+
+        if not character_role:
+            return await ctx.send(f"No se ha encontrado el personaje {character_name}.")
+        
+        # Check that a char pick is being asked
+        tasks = asyncio.all_tasks()
+        is_asked = False
+
+        task_to_cancel =  None        
+        for task in tasks:            
+            if task.get_name() == f'charpick-{player.id}':
+                is_asked = True
+                task_to_cancel = task
+                
+        # SAVE THE CHOICE IN THE DATABASE
+        if is_asked:
+            body = {'character' : character_role.name}
+            
+            async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/character/', json=body) as response:
+                if response.status == 200:
+                    await ctx.send(f"Perfecto, has elegido a {character_role.name} {character_role.emoji()}.")
+                    task_to_cancel.cancel()
+                    if is_blind:                        
+                        return await ctx.send(f"Ya puedes volver a {channel.mention if channel else 'la arena'}.")
+                else:
+                    html = await response.text()
+                    logger.error(f"Error saving character choice: {html}")
+                    return await ctx.send("Ha habido un error al guardar el personaje.")
+            
+        else:
+            return await ctx.send("Usa este comando solo cuando se te pida.", delete_after=60)
+    
+    async def character_pick(self, player, guild, channel, blind = False):
+        """
+        Handles the menu to choose a character. If blind is True, this is done in DMs.
+        """
+        asyncio.current_task().set_name(f"charpick-{player.id}")        
+        try:
+            if blind:
+                arena = channel
+                channel = player
+            
+            message = await channel.send(f'Reacciona con el personaje que vas a jugar. Si no vas a jugar mains, seconds o pockets, selecciónalo así: `.play luigi`.')    
+            
+            body = {
+                'guild' : guild.id
+            }
+            
+            # GET CHARACTERS
+            async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/profile/', json=body) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)                
+                    
+                    mains = resp_body['mains']
+                    seconds = resp_body['seconds']
+                    pockets = resp_body['pockets']
+
+                    characters = mains + seconds + pockets
+                    char_roles = [guild.get_role(role_id) for role_id in characters]
+                    char_emojis = [char_role.emoji() for char_role in char_roles]
+                else:
+                    return await channel.send("Ha habido un error. Prueba usando `.play`.")
+            
+            # ADD REACTIONS AND WAIT     
+            emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in char_emojis if emoji]
+            asyncio.gather(*emoji_tasks)
+
+            def check(payload):
+                return str(payload.emoji) in char_emojis and payload.message_id == message.id and payload.user_id != self.bot.user.id
+
+            raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
+
+            i = char_emojis.index(str(raw_reaction.emoji))
+            chosen_char = char_roles[i]
+
+            await channel.send(f"Perfecto, has elegido a {chosen_char.name} {chosen_char.emoji()}.")
+
+            body = {
+                'character': chosen_char.name
+            }
+
+            # SAVE THE CHOICE IN THE DATABASE
+            async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/character/', json=body) as response:
+                if response.status == 200:
+                    html = await response.text()                    
+                    if blind:
+                        await channel.send(f"Ya puedes volver a la arena: {arena.mention}.")
+                else:
+                    html = await response.text()
+                    logger.error(f"Error saving character choice: {html}")
+                    return await channel.send("Ha habido un error al guardar el personaje.")
+            
+        except asyncio.CancelledError:
+            logger.info("The character was chosen using .play")            
+        
+        return True        
+
+
+
+def setup(bot):
+    bot.add_cog(Ranked(bot))

@@ -5,9 +5,9 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer
+from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer, Stage
 from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
-                                        MainSerializer, RegionSerializer, CharacterSerializer)
+                                        MainSerializer, RegionSerializer, CharacterSerializer, StageSerializer)
 
 from smashbotspain.aux_methods.roles import normalize_character
 from smashbotspain.aux_methods.text import key_format
@@ -504,15 +504,14 @@ class PlayerViewSet(viewsets.ModelViewSet):
             if arena.mode == "RANKED":
                 serializer = GameSetSerializer(data={
                     'guild': arena.guild.id,
-                    'players': [player.id for player in arena.players.all()]
+                    'players': [player.id for player in arena.players.all()],
+                    'arena': arena.id
                 })
                 if serializer.is_valid():
                     game_set = serializer.save()
                     game_set.add_game()
                 else:
-                    return Response(serializer.errors,  status=status.HTTP_400_BAD_REQUEST)
-                arena.game_set = game_set
-                arena.save()
+                    return Response(serializer.errors,  status=status.HTTP_400_BAD_REQUEST)                
 
             #  Delete "search" arenas
             obsolete_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "SEARCHING"))            
@@ -550,24 +549,6 @@ class PlayerViewSet(viewsets.ModelViewSet):
         arena.add_player(player, status="INVITED")
         return Response(status=status.HTTP_200_OK)
     
-
-    @action(detail=True, methods=['post'])
-    def stage(self, request, discord_id):
-        """
-        Sets the stage of the current game.
-        """
-        player = self.get_object()
-        game = player.get_game()
-
-        if not game:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
-        
-        # Set stage
-        game.stage = request.data['stage']
-        game.save()
-
-        return Response(status=status.HTTP_200_OK)
-
     @action(detail=True, methods=['post'])
     def character(self, request, discord_id):
         """
@@ -580,11 +561,42 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_400_BAD_REQUEST)
         
         # Set the character
-        game_player = game.gameplayer_set.filter(player=player)
+        game_player = game.gameplayer_set.filter(player=player).first()
         game_player.character = request.data['character']
         game_player.save()
 
         return Response(status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def game_info(self, request, discord_id):
+        """
+        Returns the information of the current game.
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        # Get characters
+        game_players = []
+        for gp in game.gameplayer_set.all():
+            game_players.append({
+                'player': gp.player.discord_id,
+                'character': gp.character
+            })                    
+
+        # Get channel_id
+        channel_id = game.game_set.arena.channel_id
+        
+        response = {
+            'guild': game.guild.discord_id,
+            'game_players': game_players,
+            'channel_id': channel_id
+        }
+
+        return Response(response, status=status.HTTP_200_OK)
+
 
     @action(detail=True, methods=['post'])
     def win_game(self, request, discord_id):
@@ -617,10 +629,58 @@ class PlayerViewSet(viewsets.ModelViewSet):
         return Response(response, status=status.HTTP_200_OK)
 
 
+class GameViewSet(viewsets.ModelViewSet):
+    queryset = Game.objects.all()
+    serializer_class = GameSerializer
+
+    @action(methods=['get'], detail=False)
+    def last_winner(self, request):
+        """
+        Returns id of the winner of the last game
+        """
+        player = Player.objects.get(request.data['player_id'])
+
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        last_game = Game.objects.filter(game_set = game.game_set).exclude(winner__isnull=True).order_by('-number').first()
+        
+        if not last_game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        last_winner = last_game.winner
+
+        return Response({'last_winner': last_winner.discord_id}, status=status.HTTP_200_OK)
 
 
+    @action(methods=['post'], detail=False)
+    def stage(self, request):        
+        """
+        Sets the stage of the current game for a player
+        """
+        player_id = request.data['player_id']        
+        player = Player.objects.get(discord_id=player_id)
+        
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set stage
+        stage_name = request.data['stage_name']
+        
+        stage_obj = Stage.objects.filter(name=stage_name).first()
+        game.stage = stage_obj
+        game.save()
+
+        return Response(status=status.HTTP_200_OK)
 
 
+class StageViewSet(viewsets.ModelViewSet):
+    queryset = Stage.objects.all()
+    serializer_class = StageSerializer
         
 
 

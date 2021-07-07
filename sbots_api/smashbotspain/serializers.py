@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework.fields import ReadOnlyField
-from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, Main, Region, Game, GameSet, GamePlayer
+from smashbotspain.models import Player, Arena, Stage, Tier, ArenaPlayer, Message, Guild, Character, Main, Region, Game, GameSet, GamePlayer
 
 from smashbotspain.aux_methods.text import list_with_and
 
@@ -72,18 +72,7 @@ class GameSetSerializer(serializers.ModelSerializer):
     win_condition = serializers.CharField(default="BO5")
     winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=False, required=False)
 
-    # def create(self, validated_data):
-        # new_game_set = GameSet.objects.create(**validated_data)
-        # game = {
-        #     'players': [player.id for player in new_game_set.players.all()],
-        #     'guild' : [new_game_set.guild.id],
-        #     'game_set' : new_game_set.id,
-        # }
-        
-        # game_serializer = GameSerializer(data=game)
-        # if game_serializer.is_valid():
-        #     game_serializer.save()
-        # return new_game_set
+    arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all(), many=False, required=False)
 
     class Meta:
         model = GameSet
@@ -94,7 +83,7 @@ class GameSerializer(serializers.ModelSerializer):
     guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all(), many=False)
     
     game_set = serializers.PrimaryKeyRelatedField(queryset=GameSet.objects.all(), required=True, many=False)
-    stage = serializers.CharField(required=False)
+    stage = serializers.SlugRelatedField(slug_field='name', queryset=Game.objects.all())
     
     winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, many=False)
     winner_character = serializers.CharField(required=False)
@@ -103,7 +92,7 @@ class GameSerializer(serializers.ModelSerializer):
         model = Game
         fields = '__all__'
 
-class GamePlayer(serializers.ModelSerializer):
+class GamePlayerSerializer(serializers.ModelSerializer):
     player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=True)
     game = serializers.PrimaryKeyRelatedField(queryset=Game.objects.all(), required=True)
     
@@ -200,3 +189,8 @@ class GuildSerializer(serializers.ModelSerializer):
         fields = '__all__'
         lookup_field = 'discord_id'
         extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
+
+class StageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Stage
+        fields = '__all__'

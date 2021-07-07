@@ -54,5 +54,6 @@ client.load_extension("extensions.role_emoji")
 client.load_extension("cogs.Matchmaking")
 client.load_extension("cogs.HelpCommands")
 client.load_extension("cogs.Flairing")
+client.load_extension("cogs.Ranked")
 
 client.run(TOKEN)

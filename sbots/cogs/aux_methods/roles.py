@@ -128,7 +128,7 @@ def normalize_character(character_name):
     
     return False
 
-def find_role(param, role_list):
+def find_role(param, role_list, only_chars = False):
     """
     Given a param, this method returns the role 
     with an "acceptable" name in that list,
@@ -139,14 +139,15 @@ def find_role(param, role_list):
     
     role_dict = {key_format(role.name): role for role in role_list}
 
-    # DIRECTLY:
-    if key_param in role_dict.keys():
-        return role_dict[key_param]
+    if not only_chars:
+        # DIRECTLY:
+        if key_param in role_dict.keys():
+            return role_dict[key_param]
 
-    # CHECK IF TIER ROLE
-    tier_key = f'tier {key_param}'
-    if tier_key in role_dict.keys():
-        return role_dict[tier_key]
+        # CHECK IF TIER ROLE
+        tier_key = f'tier {key_param}'
+        if tier_key in role_dict.keys():
+            return role_dict[tier_key]
 
     # CHECK IF CHARACTER    
     if normalized_key := normalize_character(key_param):

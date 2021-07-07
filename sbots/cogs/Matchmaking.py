@@ -625,10 +625,15 @@ class Matchmaking(commands.Cog):
         await self.edit_messages(ctx, resp_body.get('message_set'), text)        
 
         await arena.send(f"¡Perfecto, aceptasteis ambos! {player1.mention} y {player2.mention}, ¡a jugar!")
-        await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")
 
+        asyncio.create_task(self.update_list_message(guild=ctx.guild))
+        
+        if not is_ranked:
+            await arena.send(f"Recordad usar `.ggs` al acabar, para así poder cerrar la arena.\n_(Para más información de las arenas, usad el comando `.help`)_")
+        else:
+            await self.bot.get_cog('Ranked').game_setup(player1, player2, arena, 1)
 
-        await self.update_list_message(guild=ctx.guild)
+        
     
     #  ***********************************************
     #          C  O  N  F  I  R  M  A  T  I  O  N
