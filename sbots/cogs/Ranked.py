@@ -268,8 +268,7 @@ class Ranked(commands.Cog):
             
             # Clear emojis
             emoji = str(raw_reaction.emoji)
-            open_emojis.remove(emoji)
-            await message.clear_reaction(emoji)            
+            open_emojis.remove(emoji)            
 
             #  Update open_stages
             if mode != "PICK":                
@@ -306,6 +305,7 @@ class Ranked(commands.Cog):
         async with self.bot.session.post(f'http://127.0.0.1:8000/games/stage/', json=body) as response:
             if response.status == 200:                
                 await channel.send(f"El combate tendrá lugar en **{stage['name']}** {stage['emoji']}")
+                await message.clear_reactions()
                 return True
             else:
                 html = await response.text()
@@ -364,7 +364,9 @@ class Ranked(commands.Cog):
 
         task_to_cancel =  None        
         for task in tasks:            
-            if task.get_name() == f'charpick-{player.id}':
+            if task.get_name().startswith(f'charpick-{player.id}'):
+                split_task_name = task.get_name().split('-')
+                message_id = split_task_name[-1] if len(split_task_name) == 3 else None
                 is_asked = True
                 task_to_cancel = task
                 
@@ -374,13 +376,22 @@ class Ranked(commands.Cog):
             
             async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/character/', json=body) as response:
                 if response.status == 200:
-                    await ctx.send(f"Perfecto, has elegido a {character_role.name} {character_role.emoji()}.")
+                    message_text = f"**{player.nickname()}** ha elegido a {character_role.name} {character_role.emoji()}."
+                    
+                    if message_id:
+                        message = await ctx.channel.fetch_message(message_id)
+                        await message.edit(content=message_text)
+                        await message.clear_reactions()
+                    else:
+                        await ctx.send(message_text)
+                    
+                    await ctx.message.delete()                    
                     task_to_cancel.cancel()
                     if is_blind:                        
                         return await ctx.send(f"Ya puedes volver a {channel.mention if channel else 'la arena'}.")
                 else:
                     html = await response.text()
-                    logger.error(f"Error saving character choice: {html}")
+                    logger.error(f"Error saving character choice.")
                     return await ctx.send("Ha habido un error al guardar el personaje.")
             
         else:
@@ -390,64 +401,83 @@ class Ranked(commands.Cog):
         """
         Handles the menu to choose a character. If blind is True, this is done in DMs.
         """
-        asyncio.current_task().set_name(f"charpick-{player.id}")                
-        if blind:
-            arena = channel
-            channel = player
+        try:
+            asyncio.current_task().set_name(f"charpick-{player.id}")
+            if blind:
+                arena = channel
+                channel = player
+            
+            text_message = f"{player.mention}, r" if not blind else 'R'
+            text_message += f'eacciona con el personaje que vas a jugar. Si no vas a jugar mains, seconds o pockets, selecciónalo así: `.play luigi`.'
+            message = await channel.send(text_message)
+
+            asyncio.current_task().set_name(f"charpick-{player.id}-{message.id}")
+            
+            body = {
+                'guild' : guild.id
+            }
+            
+            # GET CHARACTERS
+            async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/profile/', json=body) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)                
+                    
+                    mains = resp_body['mains']
+                    seconds = resp_body['seconds']
+                    pockets = resp_body['pockets']
+
+                    characters = mains + seconds + pockets
+                    char_roles = [guild.get_role(role_id) for role_id in characters]
+                    char_emojis = [char_role.emoji() for char_role in char_roles]
+                else:
+                    return await channel.send("Ha habido un error. Prueba usando `.play`.")
+            
+            # ADD REACTIONS AND WAIT        
+            emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in char_emojis if emoji]
+            asyncio.gather(*emoji_tasks)
+
+            def check(payload):
+                return str(payload.emoji) in char_emojis and payload.message_id == message.id and payload.user_id == player.id
+
+            raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
+
+            i = char_emojis.index(str(raw_reaction.emoji))
+            chosen_char = char_roles[i]
+
+            await message.edit(content=f"**{player.nickname()}** ha elegido a {chosen_char.name} {chosen_char.emoji()}.")
+
+            body = {
+                'character': chosen_char.name
+            }
         
-        text_message = f"{player.mention}, r" if not blind else 'R'
-        text_message += f'eacciona con el personaje que vas a jugar. Si no vas a jugar mains, seconds o pockets, selecciónalo así: `.play luigi`.'
-        message = await channel.send(text_message)
-        
-        body = {
-            'guild' : guild.id
-        }
-        
-        # GET CHARACTERS
-        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/profile/', json=body) as response:
-            if response.status == 200:
-                html = await response.text()
-                resp_body = json.loads(html)                
-                
-                mains = resp_body['mains']
-                seconds = resp_body['seconds']
-                pockets = resp_body['pockets']
+            # SAVE THE CHOICE IN THE DATABASE
+            async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/character/', json=body) as response:
+                if response.status == 200:
+                    html = await response.text()                    
+                    if blind:
+                        await channel.send(f"Ya puedes volver a la arena: {arena.mention}.")
+                else:
+                    html = await response.text()
+                    logger.error(f"Error saving character choice with character_pick")
+                    return await channel.send("Ha habido un error al guardar el personaje.")        
+            
+            # CLEAR_REACTIONS
+            await message.clear_reactions()        
+            return True
+        except CancelledError as e:
+            # Check if it was cancelled with play
+            async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/game_info/') as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)
+                    game_players = resp_body['game_players']
+                else:
+                    raise
 
-                characters = mains + seconds + pockets
-                char_roles = [guild.get_role(role_id) for role_id in characters]
-                char_emojis = [char_role.emoji() for char_role in char_roles]
-            else:
-                return await channel.send("Ha habido un error. Prueba usando `.play`.")
-        
-        # ADD REACTIONS AND WAIT     
-        emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in char_emojis if emoji]
-        asyncio.gather(*emoji_tasks)
+            if list(filter(lambda x: x['character'] is None and x['player'] == player.id, game_players)):
+                raise                
 
-        def check(payload):
-            return str(payload.emoji) in char_emojis and payload.message_id == message.id and payload.user_id == player.id
-
-        raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
-
-        i = char_emojis.index(str(raw_reaction.emoji))
-        chosen_char = char_roles[i]
-
-        await channel.send(f"Perfecto, has elegido a {chosen_char.name} {chosen_char.emoji()}.")
-
-        body = {
-            'character': chosen_char.name
-        }
-
-        # SAVE THE CHOICE IN THE DATABASE
-        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/character/', json=body) as response:
-            if response.status == 200:
-                html = await response.text()                    
-                if blind:
-                    await channel.send(f"Ya puedes volver a la arena: {arena.mention}.")
-            else:
-                html = await response.text()
-                logger.error(f"Error saving character choice: {html}")
-                return await channel.send("Ha habido un error al guardar el personaje.")        
-        return True        
 
     @commands.command()
     @commands.check(in_ranked)
