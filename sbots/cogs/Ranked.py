@@ -140,6 +140,7 @@ class Ranked(commands.Cog):
 
         players = player1, player2
         text = f"Ya podéis empezar el Game {game_number}. Cuando acabéis, reaccionad ambos con el personaje del gandor.\n"
+        text += "__**GANADOR**__\n"
         text += "\n".join([f"{i + 1}. {player_info['player'].nickname()} {player_info['char_role'].emoji()}" for i, player_info in enumerate(players_info)])
         
         message = await channel.send(text)
@@ -381,11 +382,15 @@ class Ranked(commands.Cog):
                     if message_id:
                         message = await ctx.channel.fetch_message(message_id)
                         await message.edit(content=message_text)
-                        await message.clear_reactions()
+                        
+                        if not is_blind:
+                            await message.clear_reactions()
                     else:
                         await ctx.send(message_text)
                     
-                    await ctx.message.delete()                    
+                    if not is_blind:
+                        await ctx.message.delete()
+                    
                     task_to_cancel.cancel()
                     if is_blind:                        
                         return await ctx.send(f"Ya puedes volver a {channel.mention if channel else 'la arena'}.")
@@ -463,7 +468,8 @@ class Ranked(commands.Cog):
                     return await channel.send("Ha habido un error al guardar el personaje.")        
             
             # CLEAR_REACTIONS
-            await message.clear_reactions()        
+            if not blind:
+                await message.clear_reactions()
             return True
         except CancelledError as e:
             # Check if it was cancelled with play
