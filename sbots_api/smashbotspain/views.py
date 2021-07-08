@@ -628,17 +628,39 @@ class PlayerViewSet(viewsets.ModelViewSet):
         
         return Response(response, status=status.HTTP_200_OK)
 
+    
+    @action(detail=True, methods=['get'])
+    def score(self, request, discord_id):
+        """
+        Returns the score of the current GameSet this player is playing
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        game_set = game.game_set
+
+        this_player_wins = game_set.game_set.filter(winner=player).count()
+        other_player_wins = game_set.game_set.exclude(winner=player).exclude(winner__isnull=True).count()
+
+        return Response({
+            'player_wins': this_player_wins,
+            'other_player_wins': other_player_wins
+        }, status=status.HTTP_200_OK)
+
 
 class GameViewSet(viewsets.ModelViewSet):
     queryset = Game.objects.all()
     serializer_class = GameSerializer
-
+    
     @action(methods=['get'], detail=False)
     def last_winner(self, request):
         """
         Returns id of the winner of the last game
         """
-        player = Player.objects.get(request.data['player_id'])
+        player = Player.objects.get(discord_id = request.data['player_id'])
 
         game = player.get_game()
 

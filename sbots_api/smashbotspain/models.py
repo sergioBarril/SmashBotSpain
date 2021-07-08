@@ -376,7 +376,7 @@ class GameSet(models.Model):
         # SET WINNER:
         for player in self.players.all():
             win_count = self.game_set.filter(winner=player).count()
-            if win_count >= self.win_condition:
+            if win_count >= first_to:
                 self.winner = player
                 self.save()
                 return True
@@ -404,29 +404,20 @@ class Game(models.Model):
     game_set = models.ForeignKey(GameSet, null=True, on_delete=models.CASCADE)
     stage = models.ForeignKey(Stage, null=True, on_delete=models.SET_NULL)
     
-    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_game")
-    winner_character = models.CharField(max_length=50, null=True, blank=True)    
+    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_game")    
 
     def set_winner(self, player):
         """
-        Sets the winner of this game, modifying as well the GamePlayer object
-        """        
-        # Sets winner GamePlayer
-        game_player = self.gameplayer_set.filter(player=player).first()
-        game_player.winner = True
-        game_player.save()
-
-        self.winner = player
-        self.winner_character = game_player.character        
-        
+        Sets the winner of this game
+        """                
+        self.winner = player        
         self.save()
 
 class GamePlayer(models.Model):
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
     game = models.ForeignKey(Game, on_delete=models.CASCADE)
     
-    character = models.CharField(max_length=50, null=True, blank=True)
-    winner = models.BooleanField(null=True)
+    character = models.CharField(max_length=50, null=True, blank=True)    
     
     def __str__(self):
         return f"[{self.game}]: {self.player}({self.character})"

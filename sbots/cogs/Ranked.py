@@ -46,13 +46,42 @@ class Ranked(commands.Cog):
 
         if is_first:
             await channel.send(f'Escoged personajes -- os he enviado un MD.')
+        else:
+            async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player1.id}/score/') as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)
+
+                    p1_wins = resp_body['player_wins']
+                    p2_wins = resp_body['other_player_wins']
+                
+                    await channel.send(f"El contador está **{player1.nickname()}** {p1_wins} - {p2_wins} **{player2.nickname()}**.")
 
         guild = channel.guild
         players = (player1, player2)
 
         guild_roles = await guild.fetch_roles()
 
-        await asyncio.gather(*[asyncio.create_task(self.character_pick(player, guild, channel, blind=is_first)) for player in players])
+        if is_first:
+            await asyncio.gather(*[asyncio.create_task(self.character_pick(player, guild, channel, blind=is_first)) for player in players])
+            last_winner = None
+        else:
+            body = {'player_id': player1.id}
+            
+            async with self.bot.session.get(f'http://127.0.0.1:8000/games/last_winner/', json=body) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    resp_body = json.loads(html)                    
+                    last_winner = channel.guild.get_member(resp_body['last_winner'])
+                else:
+                    html = await response.text()
+                    await channel.send("Error al buscar el ganador del último game.")
+                    logger.error(f"Error in last_winner call: {html}")
+                    return
+
+            await self.character_pick(last_winner, guild, channel, blind=False)
+            other_player = player1 if last_winner == player2 else player2
+            await self.character_pick(other_player, guild, channel, blind=False)
 
         # Get characters
         async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player1.id}/game_info/') as response:
@@ -68,6 +97,7 @@ class Ranked(commands.Cog):
                 logger.error(f"Error in game_info: {html}")
                 return
         
+        # Show characters info
         players_info = []
         for gp in game_players:
             player = guild.get_member(gp['player'])
@@ -82,15 +112,96 @@ class Ranked(commands.Cog):
         text += " vs. ".join([f"{player['player'].nickname()} ({player['char_role'].emoji()})" for player in players_info])
         await channel.send(text)
 
-        stage = await self.stage_strike(player1, player2, channel, is_first)
+        # Stage
+        stage_ok = await self.stage_strike(player1, player2, channel, is_first, last_winner)
 
-        await channel.send("Hasta aquí esta demo!")
+        if not stage_ok:
+            return False
+        
+        # Winner
+        set_finished = await self.game_winner(player1, player2, channel, players_info, game_number)
+        
+        if set_finished:
+            await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
+        elif set_finished is None:
+            return False
+        else:
+            asyncio.create_task(self.game_setup(player1, player2, channel, game_number + 1))
 
 
+    async def game_winner(self, player1, player2, channel, players_info, game_number):
+        """
+        Choose the game's winner     
+        """
+        players = player1, player2
+        text = f"Ya podéis empezar el Game {game_number}. Cuando acabéis, reaccionad ambos con el personaje del gandor.\n"
+        text += "\n".join([f"{i + 1}. {player_info['player'].nickname()} {player_info['char_role'].emoji()}" for i, player_info in enumerate(players_info)])
+        
+        message = await channel.send(text)
 
-        # Random player starts banning
-    
-    async def stage_strike(self, player1, player2, channel, is_first = False):        
+        emojis = [player_info['char_role'].emoji() for player_info in players_info]
+        
+        # If it's a ditto, use number emojis instead
+        if emojis[0] == emojis[1]:
+            emojis = [NUMBER_EMOJIS[0], NUMBER_EMOJIS[1]]
+        
+        # React to message
+        emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in emojis]
+        asyncio.gather(*emoji_tasks)
+
+        # Wait for an agreement
+        decided = False
+        while not decided:
+            def check(payload):
+                return str(payload.emoji) in emojis and payload.message_id == message.id and payload.member in players
+
+            # Wait for a reaction, and remove the other one
+            raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
+            reacted_emoji = str(raw_reaction.emoji)
+
+            other_emoji = emojis[0] if reacted_emoji == emojis[1] else emojis[1]
+            await message.remove_reaction(other_emoji, raw_reaction.member)
+
+            # Refetch message
+            message = await channel.fetch_message(message.id)
+        
+            # Check if agreement is reached
+            reactions = message.reactions            
+            winner_emoji = None
+            for reaction in reactions:                
+                if str(reaction.emoji) not in emojis:
+                    continue
+                if reaction.count == 3:                    
+                    winner_emoji = str(reaction.emoji)
+                    decided = True
+                    break
+        
+        # Get winner
+        winner = None
+        for player_info in players_info:
+            if player_info['char_role'].emoji() == winner_emoji:
+                winner = player_info['player']
+                break        
+        if winner is None:
+            i = NUMBER_EMOJIS.index(winner_emoji)
+            winner = players_info[i]['player']
+        
+        # Set winner in DB
+        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{winner.id}/win_game/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                finished = resp_body['finished']
+            else:
+                await channel.send("Error al guardar la persona ganadora.")
+                return None
+        
+        # Send feedback message
+        await channel.send(f"¡**{winner.nickname()}** {winner_emoji} ha ganado el **Game {game_number}**!")
+        return finished
+
+    async def stage_strike(self, player1, player2, channel, is_first, last_winner):        
         asyncio.current_task().set_name(f"stagestrike-{player1.id}{player2.id}")
 
         # Get stages
@@ -128,19 +239,7 @@ class Ranked(commands.Cog):
             other_player = players[0]
             ban_order = [first_ban, other_player, other_player, first_ban]
         else:
-            
-            body = {'player_id': player1.id}
-            
-            async with self.bot.session.post(f'http://127.0.0.1:8000/games/last_winner/', json=body) as response:
-                if response.status == 200:
-                    html = await response.text()
-                    resp_body = json.loads(html)                    
-                    first_ban = channel.guild.get_member(resp_body['last_winner'])
-                else:
-                    html = await response.text()
-                    await channel.send("Error al buscar el ganador del último game.")
-                    logger.error(f"Error in last_winner call: {html}")
-
+            first_ban = last_winner
             other_player = player1 if first_ban.id == player2.id else player2            
             ban_order = [first_ban, first_ban, first_ban, other_player]
         
@@ -153,8 +252,9 @@ class Ranked(commands.Cog):
         # React to message
         emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in open_emojis]
         asyncio.gather(*emoji_tasks)
-
+        
         # STRIKE PROCESS
+        mode = "BAN"
         for idx, strike_player in enumerate(ban_order):
             def check(payload):
                 return str(payload.emoji) in open_emojis and payload.message_id == message.id and payload.user_id == strike_player.id
@@ -167,7 +267,8 @@ class Ranked(commands.Cog):
             await message.clear_reaction(emoji)            
 
             #  Update open_stages
-            open_stages = list(filter(lambda x: NUMBER_EMOJIS[stages.index(x)] != emoji, open_stages))
+            if mode != "PICK":                
+                open_stages = list(filter(lambda x: NUMBER_EMOJIS[stages.index(x)] != emoji, open_stages))
 
             # Get next player
             if idx + 1 < len(ban_order):
@@ -188,7 +289,7 @@ class Ranked(commands.Cog):
         if is_first:
             stage = open_stages[0]
         else:
-            stage = list(filter(lambda x: x['emoji'] == emoji, open_stages))[0]
+            stage = list(filter(lambda x: NUMBER_EMOJIS[stages.index(x)] == emoji, open_stages))[0]
 
         
         # SET STAGE
@@ -290,7 +391,9 @@ class Ranked(commands.Cog):
                 arena = channel
                 channel = player
             
-            message = await channel.send(f'Reacciona con el personaje que vas a jugar. Si no vas a jugar mains, seconds o pockets, selecciónalo así: `.play luigi`.')    
+            text_message = f"{player.mention}, r" if not blind else 'R'
+            text_message += f'eacciona con el personaje que vas a jugar. Si no vas a jugar mains, seconds o pockets, selecciónalo así: `.play luigi`.'
+            message = await channel.send(text_message)
             
             body = {
                 'guild' : guild.id
@@ -317,7 +420,7 @@ class Ranked(commands.Cog):
             asyncio.gather(*emoji_tasks)
 
             def check(payload):
-                return str(payload.emoji) in char_emojis and payload.message_id == message.id and payload.user_id != self.bot.user.id
+                return str(payload.emoji) in char_emojis and payload.message_id == message.id and payload.user_id == player.id
 
             raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
 
