@@ -698,7 +698,35 @@ class GameViewSet(viewsets.ModelViewSet):
         game.save()
 
         return Response(status=status.HTTP_200_OK)
+    
+    @action(methods=['post'], detail=False)
+    def remake(self, request):
+        """
+        Deletes the last game with no winner (i.e, the current game) and creates a new one.
+        """
+        player_id = request.data['player_id']
+        player = Player.objects.get(discord_id=player_id)
 
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        game_set = game.game_set
+        
+        # Restart game
+        game.delete()
+        new_game = game_set.add_game()
+
+        # Get other player
+        other_player = GamePlayer.objects.filter(game=new_game).exclude(player=player).first()
+        if not other_player:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            'game_number': new_game.number,
+            'other_player_id' : other_player.player.discord_id
+        }, status=status.HTTP_200_OK)
 
 class StageViewSet(viewsets.ModelViewSet):
     queryset = Stage.objects.all()

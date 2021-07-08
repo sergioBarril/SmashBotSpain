@@ -1,3 +1,4 @@
+from asyncio.exceptions import CancelledError
 import aiohttp
 import discord
 import asyncio
@@ -19,7 +20,7 @@ from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT,
                     EMOJI_HOURGLASS, NUMBER_EMOJIS)
 
 from .checks.flairing_checks import player_exists
-from .checks.matchmaking_checks import (in_arena, in_arena_or_ranked, in_tier_channel)
+from .checks.matchmaking_checks import (in_arena, in_arena_or_ranked, in_ranked, in_tier_channel)
 
 from .aux_methods.roles import find_role
 
@@ -41,6 +42,7 @@ class Ranked(commands.Cog):
         return f'*******************\n     G A M E  {game_number}\n*******************'
 
     async def game_setup(self, player1, player2, channel, game_number):
+        asyncio.current_task().set_name(f"gamesetup-{channel.id}")        
         await channel.send(f'```{self.game_title(game_number)}\n```')
         is_first = game_number == 1
 
@@ -78,10 +80,10 @@ class Ranked(commands.Cog):
                     await channel.send("Error al buscar el ganador del último game.")
                     logger.error(f"Error in last_winner call: {html}")
                     return
-
-            await self.character_pick(last_winner, guild, channel, blind=False)
-            other_player = player1 if last_winner == player2 else player2
-            await self.character_pick(other_player, guild, channel, blind=False)
+            
+                await asyncio.create_task(self.character_pick(last_winner, guild, channel, blind=False))
+                other_player = player1 if last_winner == player2 else player2
+                await asyncio.create_task(self.character_pick(other_player, guild, channel, blind=False))                            
 
         # Get characters
         async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player1.id}/game_info/') as response:
@@ -113,13 +115,13 @@ class Ranked(commands.Cog):
         await channel.send(text)
 
         # Stage
-        stage_ok = await self.stage_strike(player1, player2, channel, is_first, last_winner)
+        stage_ok = await asyncio.create_task(self.stage_strike(player1, player2, channel, is_first, last_winner))
 
         if not stage_ok:
             return False
         
         # Winner
-        set_finished = await self.game_winner(player1, player2, channel, players_info, game_number)
+        set_finished = await asyncio.create_task(self.game_winner(player1, player2, channel, players_info, game_number))
         
         if set_finished:
             await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
@@ -129,10 +131,13 @@ class Ranked(commands.Cog):
             asyncio.create_task(self.game_setup(player1, player2, channel, game_number + 1))
 
 
+
     async def game_winner(self, player1, player2, channel, players_info, game_number):
         """
         Choose the game's winner     
         """
+        asyncio.current_task().set_name(f"winner-{channel.id}")
+
         players = player1, player2
         text = f"Ya podéis empezar el Game {game_number}. Cuando acabéis, reaccionad ambos con el personaje del gandor.\n"
         text += "\n".join([f"{i + 1}. {player_info['player'].nickname()} {player_info['char_role'].emoji()}" for i, player_info in enumerate(players_info)])
@@ -202,7 +207,7 @@ class Ranked(commands.Cog):
         return finished
 
     async def stage_strike(self, player1, player2, channel, is_first, last_winner):        
-        asyncio.current_task().set_name(f"stagestrike-{player1.id}{player2.id}")
+        asyncio.current_task().set_name(f"stagestrike-{channel.id}")
 
         # Get stages
         async with self.bot.session.get(f'http://127.0.0.1:8000/stages/') as response:
@@ -385,70 +390,122 @@ class Ranked(commands.Cog):
         """
         Handles the menu to choose a character. If blind is True, this is done in DMs.
         """
-        asyncio.current_task().set_name(f"charpick-{player.id}")        
-        try:
-            if blind:
-                arena = channel
-                channel = player
-            
-            text_message = f"{player.mention}, r" if not blind else 'R'
-            text_message += f'eacciona con el personaje que vas a jugar. Si no vas a jugar mains, seconds o pockets, selecciónalo así: `.play luigi`.'
-            message = await channel.send(text_message)
-            
-            body = {
-                'guild' : guild.id
-            }
-            
-            # GET CHARACTERS
-            async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/profile/', json=body) as response:
-                if response.status == 200:
-                    html = await response.text()
-                    resp_body = json.loads(html)                
-                    
-                    mains = resp_body['mains']
-                    seconds = resp_body['seconds']
-                    pockets = resp_body['pockets']
-
-                    characters = mains + seconds + pockets
-                    char_roles = [guild.get_role(role_id) for role_id in characters]
-                    char_emojis = [char_role.emoji() for char_role in char_roles]
-                else:
-                    return await channel.send("Ha habido un error. Prueba usando `.play`.")
-            
-            # ADD REACTIONS AND WAIT     
-            emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in char_emojis if emoji]
-            asyncio.gather(*emoji_tasks)
-
-            def check(payload):
-                return str(payload.emoji) in char_emojis and payload.message_id == message.id and payload.user_id == player.id
-
-            raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
-
-            i = char_emojis.index(str(raw_reaction.emoji))
-            chosen_char = char_roles[i]
-
-            await channel.send(f"Perfecto, has elegido a {chosen_char.name} {chosen_char.emoji()}.")
-
-            body = {
-                'character': chosen_char.name
-            }
-
-            # SAVE THE CHOICE IN THE DATABASE
-            async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/character/', json=body) as response:
-                if response.status == 200:
-                    html = await response.text()                    
-                    if blind:
-                        await channel.send(f"Ya puedes volver a la arena: {arena.mention}.")
-                else:
-                    html = await response.text()
-                    logger.error(f"Error saving character choice: {html}")
-                    return await channel.send("Ha habido un error al guardar el personaje.")
-            
-        except asyncio.CancelledError:
-            logger.info("The character was chosen using .play")            
+        asyncio.current_task().set_name(f"charpick-{player.id}")                
+        if blind:
+            arena = channel
+            channel = player
         
+        text_message = f"{player.mention}, r" if not blind else 'R'
+        text_message += f'eacciona con el personaje que vas a jugar. Si no vas a jugar mains, seconds o pockets, selecciónalo así: `.play luigi`.'
+        message = await channel.send(text_message)
+        
+        body = {
+            'guild' : guild.id
+        }
+        
+        # GET CHARACTERS
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/profile/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)                
+                
+                mains = resp_body['mains']
+                seconds = resp_body['seconds']
+                pockets = resp_body['pockets']
+
+                characters = mains + seconds + pockets
+                char_roles = [guild.get_role(role_id) for role_id in characters]
+                char_emojis = [char_role.emoji() for char_role in char_roles]
+            else:
+                return await channel.send("Ha habido un error. Prueba usando `.play`.")
+        
+        # ADD REACTIONS AND WAIT     
+        emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in char_emojis if emoji]
+        asyncio.gather(*emoji_tasks)
+
+        def check(payload):
+            return str(payload.emoji) in char_emojis and payload.message_id == message.id and payload.user_id == player.id
+
+        raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
+
+        i = char_emojis.index(str(raw_reaction.emoji))
+        chosen_char = char_roles[i]
+
+        await channel.send(f"Perfecto, has elegido a {chosen_char.name} {chosen_char.emoji()}.")
+
+        body = {
+            'character': chosen_char.name
+        }
+
+        # SAVE THE CHOICE IN THE DATABASE
+        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/character/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()                    
+                if blind:
+                    await channel.send(f"Ya puedes volver a la arena: {arena.mention}.")
+            else:
+                html = await response.text()
+                logger.error(f"Error saving character choice: {html}")
+                return await channel.send("Ha habido un error al guardar el personaje.")        
         return True        
 
+    @commands.command()
+    @commands.check(in_ranked)
+    @commands.cooldown(1, 15, BucketType.channel)
+    async def remake(self, ctx):
+        """
+        Restart last game.
+        """
+        body = {
+            'player_id': ctx.author.id
+        }
+        
+        async with self.bot.session.post(f'http://127.0.0.1:8000/games/remake/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                game_number = resp_body['game_number']
+                other_player_id = resp_body['other_player_id']
+            else:
+                return await ctx.send("Error haciendo el remake.")
+        
+        # Cancel game task
+        tasks = asyncio.all_tasks()
+
+        for task in tasks:
+            if task.get_name() == f'gamesetup-{ctx.channel.id}':
+                logger.info(f"Task {task.get_name()} cancelled.")
+                task.cancel()
+
+        # Get other player
+        other_player = ctx.guild.get_member(other_player_id)
+        
+        # Restart the game
+        await ctx.send(f"Remaking game {game_number}...")
+        logger.info(f"Remaking game {game_number} for arena between {ctx.author.nickname()} and {other_player.nickname()}")
+        asyncio.create_task(self.game_setup(ctx.author, other_player, ctx.channel, game_number))
+
+
+    @commands.command()
+    async def cancel_task(self, ctx, name):
+        tasks = asyncio.all_tasks()
+        for task in tasks:
+            if task.get_name() == name:
+                task.cancel()
+        await ctx.send(f"Task {name} cancelada.")
+    
+    @remake.error
+    async def remake_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            pass
+        elif isinstance(error, commands.errors.MissingPermissions):
+            pass
+        elif isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.remake` hasta dentro de {round(error.retry_after, 2)}s.")
+        else:
+            logger.error(f'Error: {error}')
+            raise error
 
 
 def setup(bot):
