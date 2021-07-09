@@ -46,7 +46,7 @@ class ArenaTestCase(TestCase):
         self.tier4 = make_tier(discord_id=54678987656, channel_id=1231566, weight=1, guild=self.guild)
 
         # Setup Players        
-        self.tropped = make_player(discord_id=12345678987654, tier=self.tier2)
+        self.tropped = make_player(discord_id=12345678987654, tier=self.tier1)
         self.razen = make_player(discord_id=45678987654321, tier=self.tier1)
 
     def test_friendlies_search(self):
@@ -464,7 +464,7 @@ class ArenaTestCase(TestCase):
         arena = Arena.objects.get(created_by=self.tropped)
         self.assertEqual(arena.status, "PLAYING")
 
-        self.assertIsNotNone(arena.game_set)
+        self.assertIsNotNone(arena.gameset_set)
 
         obsolete_arena = Arena.objects.filter(status="WAITING").first()
         self.assertIsNone(obsolete_arena)
