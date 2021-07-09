@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from smashbotspain.models import Player, Arena, Tier, ArenaPlayer, Message, Guild, Character, Main, Region
+from rest_framework.fields import ReadOnlyField
+from smashbotspain.models import Player, Arena, Stage, Tier, ArenaPlayer, Message, Guild, Character, Main, Region, Game, GameSet, GamePlayer
 
 from smashbotspain.aux_methods.text import list_with_and
 
@@ -64,17 +65,85 @@ class MainSerializer(serializers.ModelSerializer):
         model = Main
         fields = ('id', 'player', 'character', 'status')
 
+class GameSetSerializer(serializers.ModelSerializer):
+    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all(), many=False)
+    players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True)
+
+    win_condition = serializers.CharField(default="BO5")
+    winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=False, required=False)
+
+    arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all(), many=False, required=False)
+
+    class Meta:
+        model = GameSet
+        fields = '__all__'
+
+class GameSerializer(serializers.ModelSerializer):
+    players = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), many=True)
+    guild = serializers.PrimaryKeyRelatedField(queryset=Guild.objects.all(), many=False)
+    
+    game_set = serializers.PrimaryKeyRelatedField(queryset=GameSet.objects.all(), required=True, many=False)
+    stage = serializers.SlugRelatedField(slug_field='name', queryset=Game.objects.all())
+    
+    winner = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=False, many=False)
+    winner_character = serializers.CharField(required=False)
+
+    class Meta:
+        model = Game
+        fields = '__all__'
+
+class GamePlayerSerializer(serializers.ModelSerializer):
+    player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all(), required=True)
+    game = serializers.PrimaryKeyRelatedField(queryset=Game.objects.all(), required=True)
+    
+    character = serializers.CharField(required=False)
+    winner = serializers.BooleanField(required=False)
+
+    class Meta:
+        model = GamePlayer
+        fields = '__all__'
+
+
+class TierSerializer(serializers.ModelSerializer):
+    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
+    class Meta:
+        model = Tier
+        fields = ('discord_id', 'weight', 'channel_id', 'guild')
+        lookup_field = 'discord_id'
+        extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
+
+class MessageSerializer(serializers.ModelSerializer):    
+    tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all(), required=False)
+    
+    def create(self, validated_data):                
+        message = Message.objects.create(**validated_data)
+        if message.tier is not None:
+            message.channel_id = message.tier.channel_id
+            message.save()
+        return message
+    
+    class Meta:
+        model = Message
+        fields = '__all__'
 
 
 class ArenaSerializer(serializers.ModelSerializer):    
     guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
-    created_by = serializers.SlugRelatedField(slug_field="discord_id", queryset=Player.objects.all())    
-    max_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
-    min_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
+    created_by = serializers.SlugRelatedField(slug_field="discord_id", queryset=Player.objects.all())
+    
+    mode = serializers.CharField(required=True)
+    status = serializers.CharField(required=False)
+    
+    # Friendlies
+    max_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all(), required=False)
+    min_tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all(), required=False)
+
+    # Ranked
+    tier = serializers.SlugRelatedField(slug_field='discord_id', queryset=Tier.objects.all(), required=False)
 
     players = serializers.SlugRelatedField(slug_field="discord_id", many=True, required=False, read_only=True)
 
-    messages = serializers.PrimaryKeyRelatedField(queryset=Message.objects.all(), required=False)
+    message_set = MessageSerializer(required=False, many=True, read_only=True)
     
     def create(self, validated_data):
         new_arena = Arena.objects.create(**validated_data)        
@@ -103,7 +172,8 @@ class ArenaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Arena
-        fields = ('id', 'status', 'max_tier', 'min_tier', 'mode', 'guild', 'created_by', 'players', 'channel_id', 'messages')
+        fields = ('id', 'status', 'max_tier', 'min_tier', 'tier', 'mode', 'guild', 'created_by', 'players', 'channel_id', 'message_set')
+        depth = 2
 
 class ArenaPlayerSerializer(serializers.ModelSerializer):
     arena = serializers.PrimaryKeyRelatedField(queryset=Arena.objects.all())
@@ -113,24 +183,14 @@ class ArenaPlayerSerializer(serializers.ModelSerializer):
         model = ArenaPlayer
         fields = ('arena', 'player', 'status')
 
-class TierSerializer(serializers.ModelSerializer):
-    guild = serializers.SlugRelatedField(slug_field="discord_id", queryset=Guild.objects.all())
-    class Meta:
-        model = Tier
-        fields = ('discord_id', 'weight', 'channel_id', 'guild')
-        lookup_field = 'discord_id'
-        extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
-
-class MessageSerializer(serializers.ModelSerializer):    
-    tier = serializers.SlugRelatedField(slug_field="discord_id", queryset=Tier.objects.all())
-    
-    class Meta:
-        model = Message
-        fields = ('id', 'tier', 'arena')
-
 class GuildSerializer(serializers.ModelSerializer):    
     class Meta:
         model = Guild
         fields = '__all__'
         lookup_field = 'discord_id'
         extra_kwargs = {'url': {'lookup_field': 'discord_id'}}
+
+class StageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Stage
+        fields = '__all__'

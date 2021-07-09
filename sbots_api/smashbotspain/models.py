@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
 from django.core import validators
+from django.utils import timezone
 from functools import total_ordering
 from collections import defaultdict
 
@@ -13,6 +14,8 @@ class Guild(models.Model):
     flairing_channel = models.BigIntegerField(null=True, blank=True)
     list_channel = models.BigIntegerField(null=True, blank=True)
     list_message = models.BigIntegerField(null=True, blank=True)
+    ranked_channel = models.BigIntegerField(null=True, blank=True)
+    ranked_message = models.BigIntegerField(null=True, blank=True)
     
     match_timeout = models.IntegerField(default=600,
         validators=[
@@ -99,7 +102,6 @@ class Player(models.Model):
         """
         return self.tiers.filter(guild=guild).first()
 
-
     def status(self):
         """
         Returns the status of the player
@@ -111,15 +113,38 @@ class Player(models.Model):
             if ArenaPlayer.objects.filter(player=self, status=status):
                 return status
         return False
-            
-    def search(self, min_tier, max_tier, guild, invite=False):
+
+    def search_ranked(self, guild):
+        """
+        Search compatible ranked arenas.
+
+        TODO: Add MMR constraints
+        """
         arenas = Arena.objects.filter(guild=guild)
         arenas = arenas.filter(status="SEARCHING")
-        arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)
+        arenas = arenas.filter(mode="RANKED")
+        arenas = arenas.filter(tier=self.tier(guild))
+        arenas = arenas.exclude(created_by=self)
+
+        # CHECK REJECTED
+        my_arena = Arena.objects.filter(created_by=self, status="SEARCHING", mode="RANKED").first()
+        if my_arena is not None:
+            arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
+
+        # FILTER REMATCH
+        arenas = arenas.exclude(created_by__in=self.get_already_matched().all())
+        
+        return arenas
+
+    def search(self, min_tier, max_tier, guild, invite=False):        
+        arenas = Arena.objects.filter(guild=guild)        
+        arenas = arenas.filter(status="SEARCHING")        
+        arenas = arenas.filter(mode = "FRIENDLIES")        
+        arenas = arenas.filter(min_tier__weight__lte = max_tier.weight)        
 
         if not invite:
             arenas = arenas.filter(max_tier__weight__gte = min_tier.weight)
-            arenas = arenas.exclude(created_by=self)        
+            arenas = arenas.exclude(created_by=self)
         
         arenas = arenas.exclude(rejected_players=self)
         my_status = "PLAYING" if invite else "SEARCHING"
@@ -128,6 +153,59 @@ class Player(models.Model):
             arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
         
         return arenas
+    
+    def confirmation(self, confirmation_arena):
+        """
+        A match has been found in <<confirmation_arena>>.
+        Sets all other arenas of the player in waiting, and declines current invitations.
+        """
+        my_other_arenas = Arena.objects.filter(created_by=self).exclude(id=confirmation_arena.id).all()
+
+        for arena in my_other_arenas:
+            arena.set_status(status="WAITING")
+
+        # REMOVE INVITATIONS
+        for ap in ArenaPlayer.objects.filter(player=self, status="INVITED").all():
+            ap.delete()
+
+    def get_game(self):
+        """
+        Returns the current game this player is playing.
+        """
+        arena_player = ArenaPlayer.objects.filter(player=self, status="PLAYING").first()
+        arena = arena_player.arena
+        
+        if arena.mode != "RANKED":
+            return False
+        
+        game_set = arena.gameset_set.first()
+
+        # Get current game
+        game = Game.objects.filter(game_set=game_set, winner=None).first()
+        
+        return game
+    
+    def can_rematch(self, player):
+        """
+        Check if can rematch the other player in a ranked game
+        """
+        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        return GameSet.objects.filter(players=player, created_at__gte=today).filter(players=self).count() < 2
+    
+    def get_already_matched(self):
+        """
+        Returns a queryset with all the players this user has played already today
+        """
+        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        my_sets = GameSet.objects.filter(players=self, created_at__gte=today)
+
+        players = Player.objects.exclude(discord_id=self.discord_id).filter(gameset__in=my_sets)
+
+        can_rematch_ids = [player.id for player in players.all() if self.can_rematch(player)]
+
+        players = players.exclude(id__in=can_rematch_ids)
+        return players
+
 
 class Main(models.Model):
     MAIN_SECOND = [
@@ -162,9 +240,13 @@ class Arena(models.Model):
     status = models.CharField(max_length=12, choices=STATUS, default="SEARCHING")
     mode = models.CharField(max_length=10, choices=MODE, default="FRIENDLIES")
     
+    # Friendlies fields
     max_tier = models.ForeignKey(Tier, null=True, related_name="max_tier", on_delete=models.SET_NULL)
     min_tier = models.ForeignKey(Tier, null=True, related_name="min_tier", on_delete=models.SET_NULL)
     
+    # Ranked field
+    tier = models.ForeignKey(Tier, null=True, related_name="tier", on_delete=models.SET_NULL)
+
     channel_id = models.BigIntegerField(null=True, blank=True)
 
     players = models.ManyToManyField(Player, through="ArenaPlayer", blank=True)
@@ -172,7 +254,12 @@ class Arena(models.Model):
 
     def __str__(self):
         return f"Arena #{self.id}"
-       
+
+    def new_set(self, win_con):
+        self.game_set = GameSet(guild=self.guild, players=self.players, win_condition=win_con)
+        self.game_set.save()
+        return True
+    
     def add_player(self, player, status="WAITING"):
         ArenaPlayer.objects.create(arena=self, status=status, player=player)
 
@@ -197,6 +284,25 @@ class Arena(models.Model):
             players[ap.status].append(ap.player.discord_id)
         
         return players
+
+    def get_messages(self):
+        """
+        Returns the info of all messages related to this arena
+        """
+        messages = Message.objects.filter(arena=self).all()
+        message_response = [
+            {
+                'id': message.id,
+                'arena': message.arena.id,
+                'tier': message.tier.id if message.tier else None,
+                'channel_id': message.channel_id,
+                'mode': message.mode
+            }
+            
+            for message in messages
+        ]
+        return message_response
+        
 
 
     def set_status(self, status):
@@ -243,7 +349,118 @@ class ArenaPlayer(models.Model):
     def __str__(self):
         return f"{self.player} in {self.arena}"
 
+class GameSet(models.Model):
+    created_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
+    players = models.ManyToManyField(Player)
+
+    WIN_CONDITIONS = [
+        ("BO3", "BO3"),
+        ("BO5", "BO5"),
+        ("FT5", "FT5"),
+        ("FT10", "FT10"),
+    ]
+    
+    win_condition = models.CharField(max_length=40, choices=WIN_CONDITIONS)
+    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_set")    
+    arena = models.ForeignKey(Arena, null=True, on_delete=models.SET_NULL)
+
+    def add_game(self):
+
+        game_number = Game.objects.filter(game_set=self).count()
+
+        game = Game(number= game_number + 1, guild=self.guild, game_set=self)
+        game.save()
+
+        for player in self.players.all():
+            game_player = GamePlayer(player=player, game=game)
+            game_player.save()
+    
+        return game
+    
+    def set_winner(self):
+        """
+        Checks if there's already a winner. If there is, it is set, and True is returned.
+        
+        Returns True if there's a winner, False if no winner is set.
+        """
+        first_to = None
+        games = self.game_set.all()
+        
+        # SET NUM OF WINS
+        if self.win_condition == "BO3":
+            first_to = 2
+        elif self.win_condition == "BO5":
+            first_to = 3
+        elif self.win_condition == "FT5":
+            first_to = 5
+        elif self.win_condition == "FT10":
+            first_to = 10
+        else:
+            return None
+        
+        # SET WINNER:
+        for player in self.players.all():
+            win_count = self.game_set.filter(winner=player).count()
+            if win_count >= first_to:
+                self.winner = player
+                self.save()
+                return True
+        return False
+    
+    def finish(self):
+        self.finished_at = timezone.now()        
+        self.save()
+
+class Stage(models.Model):
+    TYPES = [
+        ("STARTER", "Starter"),
+        ("COUNTERPICK", "Counterpick")
+    ]
+    
+    name = models.CharField(max_length=50)
+    emoji = models.CharField(max_length=100)
+    type = models.CharField(max_length=20, choices=TYPES)
+
+    def __str__(self):
+        return self.name
+
+class Game(models.Model):
+    number = models.IntegerField()
+    players = models.ManyToManyField(Player, through="GamePlayer")
+    guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
+    
+    game_set = models.ForeignKey(GameSet, null=True, on_delete=models.CASCADE)
+    stage = models.ForeignKey(Stage, null=True, on_delete=models.SET_NULL)
+    
+    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_game")    
+
+    def set_winner(self, player):
+        """
+        Sets the winner of this game
+        """                
+        self.winner = player        
+        self.save()
+
+class GamePlayer(models.Model):
+    player = models.ForeignKey(Player, on_delete=models.CASCADE)
+    game = models.ForeignKey(Game, on_delete=models.CASCADE)
+    
+    character = models.CharField(max_length=50, null=True, blank=True)    
+    
+    def __str__(self):
+        return f"[{self.game}]: {self.player}({self.character})"
+
 class Message(models.Model):
+    MODE = [
+        ("FRIENDLIES", "Friendlies"),
+        ("RANKED", "Ranked")
+    ]
+
     id = models.BigIntegerField(primary_key=True)
-    tier = models.ForeignKey(Tier, on_delete=models.CASCADE)
+    tier = models.ForeignKey(Tier, on_delete=models.CASCADE, null=True)
+    channel_id = models.BigIntegerField(null=True)
     arena = models.ForeignKey(Arena, on_delete=models.CASCADE)
+    mode = models.CharField(max_length=10, choices=MODE, default="FRIENDLIES")

@@ -5,9 +5,9 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main
-from smashbotspain.serializers import (PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
-                                        MainSerializer, RegionSerializer, CharacterSerializer)
+from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer, Stage
+from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
+                                        MainSerializer, RegionSerializer, CharacterSerializer, StageSerializer)
 
 from smashbotspain.aux_methods.roles import normalize_character
 from smashbotspain.aux_methods.text import key_format
@@ -237,17 +237,97 @@ class PlayerViewSet(viewsets.ModelViewSet):
         return Response({'roles': response}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
+    def ranked_matchmaking(self, request, discord_id):
+        """
+        Matches. Ranked only
+        """
+        player = self.get_object()
+
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(discord_id=guild_id)
+
+
+        arenas = player.search_ranked(guild=guild)
+        if arenas: # Join existing arena
+            arena = arenas.first()
+            arena.add_player(player, "CONFIRMATION")
+            arena.set_status("CONFIRMATION")
+            arena.save()
+
+            arena.created_by.confirmation(arena)
+            player.confirmation(arena)
+
+            # Messages
+            arena_messages = Message.objects.filter(arena=arena).all()
+            
+            return Response({
+                "match_found" : True,
+                "player_one" : arena.created_by.discord_id,
+                "player_two" : player.discord_id,
+                "messages" : [{'id': message.id, 'channel': message.channel_id} for message in arena_messages]
+            }, status=status.HTTP_201_CREATED)
+        else:
+            ranked_arena = Arena.objects.filter(created_by=player, mode="RANKED").first()            
+            
+            messages = ranked_arena.get_messages() if ranked_arena else []
+            return Response({'no_match': True, 'messages': messages}, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=True, methods=['get'])
+    def rematch(self, request, discord_id):
+        """
+        Allows a player that has just finished a ranked set to do another one.
+        """
+        player = self.get_object()
+
+        # Get finished game_set to get arena
+        game_set = GameSet.objects.filter(players=player).exclude(winner__isnull=True, arena__isnull=True).first()
+
+        if not game_set:
+            return Response(status=status.HTTP_404_NOT_FOUND)        
+        arena = game_set.arena
+
+        other_player = game_set.players.exclude(discord_id=discord_id).first()                
+
+        if not player.can_rematch(other_player):
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = GameSetSerializer(data={
+                    'guild': arena.guild.id,
+                    'players': [player.id for player in game_set.players.all()],
+                    'arena': arena.id
+        })
+
+        # Remove arena from last set
+        game_set.arena = None
+        game_set.save()
+        
+        if serializer.is_valid():
+            new_set = serializer.save()
+            new_set.add_game()
+        
+        return Response({
+            'player1': player.discord_id,
+            'player2': other_player.discord_id
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['get'])
     def matchmaking(self, request, discord_id):
         """
         Matches the player. Requires to have created an arena through POST /arenas/.
         """
         player = self.get_object()
         guild_id = request.data['guild']
+        guild = Guild.objects.get(discord_id=guild_id)
 
+        old_arena = Arena.objects.filter(guild=guild, created_by=player, mode='FRIENDLIES', status="SEARCHING").first()
+        
+        if old_arena is None:
+            return Response(status=status.HTTP_409_CONFLICT)
+        
         min_tier = Tier.objects.get(discord_id=request.data['min_tier'])
-        max_tier = Tier.objects.get(discord_id=request.data['max_tier'])
+        max_tier = Tier.objects.get(discord_id=request.data['max_tier'])        
 
-        arenas = player.search(min_tier, max_tier, guild_id)
+        arenas = player.search(min_tier, max_tier, guild)
 
         if arenas: # Join existing arena
             arena = arenas.first()
@@ -255,7 +335,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
             arena.set_status("CONFIRMATION")
             arena.save()
 
-            old_arena = Arena.objects.filter(guild=guild_id, created_by=player, status="SEARCHING").first()                
+            old_arena = Arena.objects.filter(guild=guild, created_by=player, mode='FRIENDLIES', status="SEARCHING").first()
             old_arena.set_status("WAITING")
 
             # REMOVE INVITATIONS
@@ -267,7 +347,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 "player_one" : arena.created_by.discord_id,
                 "player_two" : player.discord_id
             }, status=status.HTTP_200_OK)
-        else:
+        else:            
             return Response({'no_match', True}, status=status.HTTP_404_NOT_FOUND)    
     
     @action(detail=True, methods=['patch'])
@@ -289,6 +369,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
             if accepted:
                 ggs_player = ArenaPlayer.objects.filter(status="GGS", player=player, arena=arena).first()
                 
+                # Remove the AP born with the invitation, just change the status to the old one
                 if ggs_player is not None:
                     arena_player, ggs_player = ggs_player, arena_player
                     ggs_player.delete()
@@ -296,20 +377,25 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 arena_player.status = "PLAYING"
                 arena_player.save()
 
-                guest_arena = Arena.objects.filter(created_by=player, status="SEARCHING").first()
-                messages = guest_arena.message_set.all()
+                guest_arenas = Arena.objects.filter(created_by=player, status="SEARCHING").all()
+                
+                # Fetch the messages of all other arenas
+                messages = []
+                for guest_arena in guest_arenas:
+                    messages += list(guest_arena.message_set.all())
                 
                 for message in messages:
                     message.arena = arena
                     message.save()
                 
-                guest_arena.delete()
+                for guest_arena in guest_arenas:
+                    guest_arena.delete()
 
                 players = arena.get_players()
 
                 response = {
                     'players' : players,
-                    'messages' : [{'id': message.id, 'channel': message.tier.channel_id} for message in arena.message_set.all()]
+                    'messages' : [{'id': message.id, 'channel': message.channel_id} for message in arena.message_set.all()]
                 }
             else:                
                 response = {}
@@ -323,54 +409,108 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
         
         arena = arena_player.arena
+        is_ranked = arena.mode == 'RANKED'
 
         players = arena.players.all()
         other_player = arena.players.exclude(discord_id=player.discord_id).get()        
         
         # Rejected
         if not accepted:
-            searching_arena = None
+            messages = []
+            searching_arenas = []
             other_accepted = other_player.status() == "ACCEPTED"
             
             if player == arena.created_by:
-                other_arena = Arena.objects.filter(created_by=other_player, status="WAITING").first()
-                other_arena.set_status("SEARCHING")
-                searching_arena = other_arena
+                other_arenas = Arena.objects.filter(created_by__in=players, status="WAITING").exclude(id=arena.id)
+                for other_arena in other_arenas:
+                    other_arena.set_status("SEARCHING")
+                    searching_arenas.append(other_arena)
+                messages = arena.get_messages()
                 arena.delete()
             else:
                 arena_player.delete()
-                other_arena = Arena.objects.filter(created_by=player, status="WAITING").first()
-                arena.set_status("SEARCHING")
-                searching_arena = arena                
-                other_arena.delete()            
-                        
-            if is_timeout and not other_accepted:
-                searching_arena.delete()
-                searching_arena = None
-            elif not is_timeout:
-                searching_arena.rejected_players.add(player)
-                searching_arena.save()
+                
+                rejected_arena = Arena.objects.filter(created_by=player, status="WAITING", mode=arena.mode).first()
+                if rejected_arena is None:
+                    return Response(status=status.HTTP_404_NOT_FOUND)
+                messages = rejected_arena.get_messages()
+                rejected_arena.delete()
+                
+                other_arenas = Arena.objects.filter(created_by__in=list(players), status__in=("WAITING", "CONFIRMATION")).all()
+                for arena_to_search in other_arenas:
+                    arena_to_search.set_status("SEARCHING")
+                    searching_arenas.append(arena_to_search)
 
+            # TIMEOUT
+            if is_timeout:                
+                if not other_accepted:  # No one responded                    
+                    for searching_arena in searching_arenas:
+                        messages += searching_arena.get_messages()
+                        searching_arena.delete()
+                    searching_arenas = []
+                else: # Only current player timed out
+                    player_arenas = Arena.objects.filter(created_by=player).all()
+                    for searching_arena in player_arenas:
+                        messages += searching_arena.get_messages()
+                        searching_arena.delete()
+                    searching_arenas = list(Arena.objects.filter(created_by=other_player).all())
+            else:
+                for searching_arena in searching_arenas:
+                    if not is_ranked and searching_arena.mode != 'RANKED' and searching_arena.created_by == other_player:
+                        searching_arena.rejected_players.add(player)
+                        searching_arena.save()
+
+
+            surviving_ranked_message = {}
+            
+            # Get and delete ranked message of the player who accepted:
+            # (it will be then resent)
+            if not (is_timeout and not other_accepted):
+                surviving_ranked_arena = Arena.objects.filter(created_by=other_player, mode="RANKED").first()
+                if surviving_ranked_arena:
+                    message = Message.objects.filter(arena=surviving_ranked_arena, mode="RANKED").first()
+                    if message:
+                        surviving_ranked_message = {
+                            'id': message.id,
+                            'arena': message.arena.id,
+                            'tier': message.arena.created_by.tier(message.arena.guild).discord_id,
+                            'channel_id': message.channel_id,
+                            'mode': message.mode,
+                            'player_id' : message.arena.created_by.discord_id
+                        }
+                        message.delete()
+
+                
             response_body = {
                 'player_accepted': False,
                 'timeout': is_timeout,
                 'player_id' : player.discord_id,
-            }             
+                'arenas': [],
+                'messages' : messages,
+                'ranked_message': surviving_ranked_message
+            }
 
-            if searching_arena is None:
-                response_body['arena_id'] = None
-            else:
-                tiers = searching_arena.get_tiers()
-                
-                response_body.update({
+            for searching_arena in searching_arenas:
+                response_arena = {
                     'arena_id' : searching_arena.id,
                     'searching_player': searching_arena.created_by.discord_id,
-                    'min_tier': searching_arena.min_tier.discord_id,
-                    'max_tier': searching_arena.max_tier.discord_id,
-                    'tiers': [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
-                })            
+                    'mode': searching_arena.mode              
+                }
+                
+                if searching_arena.mode == "FRIENDLIES":
+                    tiers = searching_arena.get_tiers()
+                
+                    response_arena.update({
+                        'min_tier': searching_arena.min_tier.discord_id,
+                        'max_tier': searching_arena.max_tier.discord_id,
+                        'tiers': [{'id': tier.discord_id, 'channel': tier.channel_id} for tier in tiers]
+                    })
+
+                response_body['arenas'].append(response_arena)
             return Response(response_body, status=status.HTTP_200_OK)
         
+
+        #   ACCEPTED
         serializer = ArenaPlayerSerializer(arena_player, data={'status' : 'ACCEPTED'}, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -396,10 +536,35 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 arena_player.set_status("PLAYING")            
             arena.set_status("PLAYING")
 
+            # Create GameSet if RANKED
+            if arena.mode == "RANKED":
+                serializer = GameSetSerializer(data={
+                    'guild': arena.guild.id,
+                    'players': [player.id for player in arena.players.all()],
+                    'arena': arena.id
+                })
+                if serializer.is_valid():
+                    game_set = serializer.save()
+                    game_set.add_game()
+                else:
+                    return Response(serializer.errors,  status=status.HTTP_400_BAD_REQUEST)                
+
             #  Delete "search" arenas
-            obsolete_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "SEARCHING"))
-            for arena in obsolete_arenas:
-                arena.delete()                    
+            obsolete_arenas = Arena.objects.filter(created_by__in=players, status__in=("WAITING", "SEARCHING"))            
+            for obsolete_arena in obsolete_arenas:
+                messages = Message.objects.filter(arena=obsolete_arena).all()
+                for message in messages:
+                    message.arena = arena
+                    message.save()
+                obsolete_arena.delete()
+            
+            # Delete ranked messages
+            ranked_messages = Message.objects.filter(arena=arena, mode="RANKED").all()
+            response['messages'] = arena.get_messages()
+            
+            for message in ranked_messages:
+                message.delete()
+            
         else:
             response['waiting_for'] = unconfirmed_players.first().player.discord_id
 
@@ -419,6 +584,194 @@ class PlayerViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
         arena.add_player(player, status="INVITED")
         return Response(status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'])
+    def character(self, request, discord_id):
+        """
+        Sets the character this player will play this game
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set the character
+        game_player = game.gameplayer_set.filter(player=player).first()
+        game_player.character = request.data['character']
+        game_player.save()
+
+        return Response(status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def game_info(self, request, discord_id):
+        """
+        Returns the information of the current game.
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        # Get characters
+        game_players = []
+        for gp in game.gameplayer_set.all():
+            game_players.append({
+                'player': gp.player.discord_id,
+                'character': gp.character
+            })                    
+
+        # Get channel_id
+        channel_id = game.game_set.arena.channel_id
+        
+        response = {
+            'guild': game.guild.discord_id,
+            'game_players': game_players,
+            'channel_id': channel_id
+        }
+
+        return Response(response, status=status.HTTP_200_OK)
+
+
+    @action(detail=True, methods=['post'])
+    def win_game(self, request, discord_id):
+        """
+        Marks the current game as a victory.
+        Needs the player to be playing a ranked match.
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        game_set = game.game_set
+        
+        # Set winner and check if ggs
+        game.set_winner(player)
+        is_over = game_set.set_winner()
+
+        if is_over:
+            game_set.finish()
+            player1, player2 = game_set.players.all()            
+            can_rematch = player1.can_rematch(player2)
+        else:
+            game_set.add_game()
+            can_rematch = None
+
+        response = {
+            'finished': is_over,
+            'can_rematch': can_rematch            
+        }
+        
+        return Response(response, status=status.HTTP_200_OK)
+
+    
+    @action(detail=True, methods=['get'])
+    def score(self, request, discord_id):
+        """
+        Returns the score of the current GameSet this player is playing
+        """
+        player = self.get_object()
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        game_set = game.game_set
+
+        this_player_wins = game_set.game_set.filter(winner=player).count()
+        other_player_wins = game_set.game_set.exclude(winner=player).exclude(winner__isnull=True).count()
+
+        return Response({
+            'player_wins': this_player_wins,
+            'other_player_wins': other_player_wins
+        }, status=status.HTTP_200_OK)
+
+
+class GameViewSet(viewsets.ModelViewSet):
+    queryset = Game.objects.all()
+    serializer_class = GameSerializer
+    
+    @action(methods=['get'], detail=False)
+    def last_winner(self, request):
+        """
+        Returns id of the winner of the last game
+        """
+        player = Player.objects.get(discord_id = request.data['player_id'])
+
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        last_game = Game.objects.filter(game_set = game.game_set).exclude(winner__isnull=True).order_by('-number').first()
+        
+        if not last_game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        last_winner = last_game.winner
+
+        return Response({'last_winner': last_winner.discord_id}, status=status.HTTP_200_OK)
+
+
+    @action(methods=['post'], detail=False)
+    def stage(self, request):        
+        """
+        Sets the stage of the current game for a player
+        """
+        player_id = request.data['player_id']        
+        player = Player.objects.get(discord_id=player_id)
+        
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set stage
+        stage_name = request.data['stage_name']
+        
+        stage_obj = Stage.objects.filter(name=stage_name).first()
+        game.stage = stage_obj
+        game.save()
+
+        return Response(status=status.HTTP_200_OK)
+    
+    @action(methods=['post'], detail=False)
+    def remake(self, request):
+        """
+        Deletes the last game with no winner (i.e, the current game) and creates a new one.
+        """
+        player_id = request.data['player_id']
+        player = Player.objects.get(discord_id=player_id)
+
+        game = player.get_game()
+
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        game_set = game.game_set
+        
+        # Restart game
+        game.delete()
+        new_game = game_set.add_game()
+
+        # Get other player
+        other_player = GamePlayer.objects.filter(game=new_game).exclude(player=player).first()
+        if not other_player:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            'game_number': new_game.number,
+            'other_player_id' : other_player.player.discord_id
+        }, status=status.HTTP_200_OK)
+
+class StageViewSet(viewsets.ModelViewSet):
+    queryset = Stage.objects.all()
+    serializer_class = StageSerializer
+        
+
 
 class RegionViewSet(viewsets.ModelViewSet):
     queryset = Region.objects.all()
@@ -481,7 +834,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not is_bulk:
             data = request.data
                 
-        serializer = MessageSerializer(data=data, many=is_bulk)
+        serializer = MessageSerializer(data=data, many=is_bulk)        
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -542,36 +895,66 @@ class GuildViewSet(viewsets.ModelViewSet):
     def list_message(self, request, discord_id):
         guild = self.get_object()
         
-        searching_arenas = Arena.objects.filter(status="SEARCHING")
-        tiers = Tier.objects.order_by('-weight').all()
+        friendlies_searching = Arena.objects.filter(status="SEARCHING", mode="FRIENDLIES")
+        ranked_searching = Arena.objects.filter(status="SEARCHING", mode="RANKED")
+        
+        tiers = Tier.objects.order_by('-weight').all()        
         
         response = {
             'tiers' : [],
             'confirmation' : [],
             'playing': [],
             'list_channel': guild.list_channel,
-            'list_message': guild.list_message
+            'list_message': guild.list_message,
+            'ranked_searching': ranked_searching.count()
         }
         
         # TIERS        
         tier_lists = response['tiers']
         for tier in tiers:
-            tier_lists.append({'id' : tier.discord_id, 'players': [arena.created_by.discord_id for arena in searching_arenas
+            tier_lists.append({'id' : tier.discord_id, 'players': [arena.created_by.discord_id for arena in friendlies_searching
                                                                 if tier.between(arena.min_tier, arena.max_tier)]})
         # CONFIRMATION
         confirmation_arenas = Arena.objects.filter(status="CONFIRMATION")
         confirmation_list = response['confirmation']
         for arena in confirmation_arenas:
-            confirmation_list.append([{'id' : player.discord_id, 'tier': player.tier(guild).discord_id, 'status': player.status()} for player in arena.players.all()])
+            confirmation_list.append(
+                [
+                    {'id' : player.discord_id, 'tier': player.tier(guild).discord_id,
+                    'status': player.status(),'mode': arena.mode}
+                    for player in arena.players.all()
+                ]
+            )
         
         # PLAYING        
-        playing_arenas = Arena.objects.filter(status="PLAYING")
+        playing_arenas = Arena.objects.filter(status="PLAYING").order_by('mode')
         playing_list = response['playing']
         for arena in playing_arenas:
-            playing_list.append([{'id' : ap.player.discord_id, 'tier': ap.player.tier(guild).discord_id, 'status': ap.status} 
+            playing_list.append(
+                [
+                    {'id' : ap.player.discord_id, 'tier': ap.player.tier(guild).discord_id,
+                    'status': ap.status, 'mode': arena.mode} 
                 for ap in arena.arenaplayer_set.filter(status="PLAYING").all()])
         
         return Response(response, status=status.HTTP_200_OK)        
+
+    @action(detail=False)
+    def ranked_messages(self, request):
+        """
+        Sends the information about the ranked channels and messages of all guilds.
+        """
+        guilds = Guild.objects.all()
+
+        response = []
+        for guild in guilds:
+            info = {
+                'guild_id': guild.discord_id,
+                'channel_id': guild.ranked_channel,
+                'message_id': guild.ranked_message,
+            }
+            response.append(info)
+        
+        return Response({'guilds': response}, status=status.HTTP_200_OK)
 
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()
@@ -595,7 +978,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         for arena in arenas:
             arena_dict = {'guild': arena.guild.discord_id, 'channel': arena.channel_id,
                 'player': arena.created_by.discord_id,
-                'messages': [{'id': message.id, 'channel': message.tier.channel_id} for message in arena.message_set.all()]}
+                'messages': [{'id': message.id, 'channel': message.channel_id} for message in arena.message_set.all()]}
             response.append(arena_dict)
             arena.delete()
 
@@ -648,7 +1031,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         # Get messages
         messages = []
         for message in arena.message_set.all():
-            messages.append({'id': message.id, 'channel': message.tier.channel_id})
+            messages.append({'id': message.id, 'channel': message.channel_id})
             if is_closed:
                 message.delete()
 
@@ -664,7 +1047,9 @@ class ArenaViewSet(viewsets.ModelViewSet):
 
         player = Player.objects.get(discord_id=player_id)
         player_status = player.status()
-        arena = Arena.objects.filter(status="SEARCHING", created_by=player).first()
+
+        mode = request.data['mode']        
+        arena = Arena.objects.filter(status="SEARCHING", created_by=player, mode=mode).first()
 
         #  CAN'T CANCEL
         if not player_status or (player_status in ArenaPlayer.CAN_JOIN_STATUS and not arena):
@@ -678,7 +1063,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
 
         messages = []
         for message in arena.message_set.all():
-            messages.append({'id': message.id, 'channel': message.tier.channel_id})
+            messages.append({'id': message.id, 'channel': message.channel_id})
             message.delete()
 
         #  CANCEL
@@ -714,6 +1099,70 @@ class ArenaViewSet(viewsets.ModelViewSet):
 
         return Response({'players': players, 'hosts': hosts}, status=status.HTTP_200_OK)    
 
+    @action(detail=False, methods=['post'])
+    def ranked(self, request):
+        guild_id = request.data['guild']
+        guild = Guild.objects.get(discord_id=guild_id)
+
+        # Get player
+        player_id = request.data['created_by']
+        try:
+            player = Player.objects.get(discord_id=player_id)
+        except Player.DoesNotExist as e:            
+            return Response({"cant_join": "PLAYER_DOES_NOT_EXIST"}, status=status.HTTP_400_BAD_REQUEST)
+        except Player.MultipleObjectsReturned as e:            
+            return Response({"cant_join" : "MULTIPLE_PLAYERS"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if can search
+        my_ranked = Arena.objects.filter(created_by=player, mode="RANKED", status="SEARCHING").first()
+        player_status = "ALREADY_SEARCHING" if my_ranked else player.status()
+        
+        if player_status in ArenaPlayer.CANT_JOIN_STATUS or player_status == "ALREADY_SEARCHING" :
+            return Response({"cant_join" : player_status}, status=status.HTTP_409_CONFLICT)
+
+        # Create my ranked arena
+        arena_data = {
+            'guild' : guild.discord_id,
+            'created_by': player.discord_id,
+            'mode': 'RANKED',
+            'status': 'WAITING',
+            'tier': player.tier(guild).discord_id
+        }
+        arena_serializer = ArenaSerializer(data=arena_data)
+        if arena_serializer.is_valid():
+            my_arena = arena_serializer.save()
+        else:
+            return Response(arena_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Matchmaking
+        arenas = player.search_ranked(guild=guild)
+
+        if arenas: # Join existing arena
+            arena = arenas.first()
+            arena.add_player(player, "CONFIRMATION")
+            arena.set_status("CONFIRMATION")
+            arena.save()
+
+            arena.created_by.confirmation(arena)
+            player.confirmation(arena)
+
+            # Messages
+            arena_messages = Message.objects.filter(arena=arena).all()
+            
+            return Response({
+                "match_found" : True,
+                "id": my_arena.id,
+                "tier": player.tier(guild).discord_id,
+                "player_one" : arena.created_by.discord_id,
+                "player_two" : player_id,
+                "messages" : [{'id': message.id, 'channel': message.channel_id} for message in arena_messages]
+            }, status=status.HTTP_201_CREATED)        
+        else:
+            my_arena.set_status("SEARCHING")
+            return Response({"match_found": False, "tier": player.tier(guild).discord_id, "id": my_arena.id}, status=status.HTTP_201_CREATED)
+
+
+
     def create(self, request):
         guild_id = request.data['guild']
         guild = Guild.objects.get(discord_id=guild_id)
@@ -722,31 +1171,19 @@ class ArenaViewSet(viewsets.ModelViewSet):
         force_tier = request.data.get('force_tier', False)
         
         # Get player tier
-        tier_roles = Tier.objects.filter(discord_id__in=roles)
-        
+        tier_roles = Tier.objects.filter(discord_id__in=roles)        
         if not tier_roles:
-            return Response({"cant_join":"NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response({"cant_join":"NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)        
         player_tier = max(tier_roles, key=lambda role : role.weight)
 
-        # Get or create player
-        player_id = request.data['created_by']        
+        # Get player
+        player_id = request.data['created_by']
         try:
             player = Player.objects.get(discord_id=player_id)
-        except Player.DoesNotExist as e:                        
-            player_data = {
-                'discord_id' : player_id                
-            }
-            player_serializer = PlayerSerializer(data=player_data, context={'tier' : player_tier.discord_id})
-            if player_serializer.is_valid():
-                player = player_serializer.save()
-            else:
-                return Response(player_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except Player.MultipleObjectsReturned as e:
-            x = Player.objects.filter(discord_id=player_id).all()
-            for p in x:
-                print(p)
-            return
+        except Player.DoesNotExist as e:            
+            return Response({"cant_join": "PLAYER_DOES_NOT_EXIST"}, status=status.HTTP_400_BAD_REQUEST)
+        except Player.MultipleObjectsReturned as e:            
+            return Response({"cant_join" : "MULTIPLE_PLAYERS"}, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if can search
         player_status = player.status()
@@ -765,7 +1202,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
         # Update search
         old_arena = None
         try:
-            old_arena = Arena.objects.filter(created_by=player, status="SEARCHING").get()
+            old_arena = Arena.objects.filter(created_by=player, status="SEARCHING", mode="FRIENDLIES").get()
 
             # Get added and removed tiers
             old_tiers = Tier.objects.filter(weight__gte=old_arena.min_tier.weight, weight__lte=old_arena.max_tier.weight)
@@ -778,7 +1215,12 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 return Response({"cant_join" : "ALREADY_SEARCHING"}, status=status.HTTP_400_BAD_REQUEST)
             
             # Partial update
-            old_serializer = ArenaSerializer(old_arena, data={'min_tier' : min_tier.discord_id, 'max_tier' : max_tier.discord_id}, partial=True)
+            old_serializer = ArenaSerializer(old_arena,
+                data={
+                    'min_tier' : min_tier.discord_id,
+                    'max_tier' : max_tier.discord_id
+                }, partial=True)
+            
             if old_serializer.is_valid():
                 old_serializer.save()
             else:
@@ -804,9 +1246,11 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 if serializer.is_valid():
                     old_arena = serializer.save()
                 else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)                
-                
-            old_arena.set_status("WAITING")
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            # Put the rest of your arenas or the other player's in WAITING
+            for other_arena in Arena.objects.filter(created_by__in=(player, arena.created_by)).exclude(id=arena.id).all():
+                other_arena.set_status("WAITING")
 
             # REMOVE INVITATIONS
             for ap in ArenaPlayer.objects.filter(player__discord_id__in=(player_id, arena.created_by.discord_id), status="INVITED").all():
@@ -823,7 +1267,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
                 "match_found" : True,
                 "player_one" : arena.created_by.discord_id,
                 "player_two" : player_id,
-                "messages" : [{'id': message.id, 'channel': message.tier.channel_id} for message in messages]
+                "messages" : [{'id': message.id, 'channel': message.channel_id} for message in messages]
             }, status=status.HTTP_201_CREATED)
         
         if old_arena: # No match available, just updated search
