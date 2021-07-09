@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
 from django.core import validators
+from django.utils import timezone
 from functools import total_ordering
 from collections import defaultdict
 
@@ -129,6 +130,10 @@ class Player(models.Model):
         my_arena = Arena.objects.filter(created_by=self, status="SEARCHING", mode="RANKED").first()
         if my_arena is not None:
             arenas = arenas.exclude(created_by__in=my_arena.rejected_players.all())
+
+        # FILTER REMATCH
+        arenas = arenas.exclude(created_by__in=self.get_already_matched().all())
+        
         return arenas
 
     def search(self, min_tier, max_tier, guild, invite=False):        
@@ -179,7 +184,27 @@ class Player(models.Model):
         game = Game.objects.filter(game_set=game_set, winner=None).first()
         
         return game
-            
+    
+    def can_rematch(self, player):
+        """
+        Check if can rematch the other player in a ranked game
+        """
+        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        return GameSet.objects.filter(players=player, created_at__gte=today).filter(players=self).count() < 2
+    
+    def get_already_matched(self):
+        """
+        Returns a queryset with all the players this user has played already today
+        """
+        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        my_sets = GameSet.objects.filter(players=self, created_at__gte=today)
+
+        players = Player.objects.exclude(discord_id=self.discord_id).filter(gameset__in=my_sets)
+
+        can_rematch_ids = [player.id for player in players.all() if self.can_rematch(player)]
+
+        players = players.exclude(id__in=can_rematch_ids)
+        return players
 
 
 class Main(models.Model):
@@ -324,7 +349,10 @@ class ArenaPlayer(models.Model):
     def __str__(self):
         return f"{self.player} in {self.arena}"
 
-class GameSet(models.Model):    
+class GameSet(models.Model):
+    created_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
     players = models.ManyToManyField(Player)
 
@@ -381,7 +409,10 @@ class GameSet(models.Model):
                 self.save()
                 return True
         return False
-
+    
+    def finish(self):
+        self.finished_at = timezone.now()        
+        self.save()
 
 class Stage(models.Model):
     TYPES = [

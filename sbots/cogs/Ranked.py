@@ -41,6 +41,29 @@ class Ranked(commands.Cog):
         """
         return f'*******************\n     G A M E  {game_number}\n*******************'
 
+
+    @commands.command()
+    @commands.check(in_ranked)
+    async def rematch(self, ctx):
+        player = ctx.author
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/rematch/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                player1_id = resp_body['player1']
+                player2_id = resp_body['player2']
+
+                player1 = ctx.guild.get_member(player1_id)
+                player2 = ctx.guild.get_member(player2_id)
+            
+            else:
+                return await ctx.send("Error al intentar hacer rematch. Probablemente ya hayáis jugado demasiado hoy.")
+        
+        await ctx.send("Perfecto, ¡ahí va la revancha!")
+        asyncio.create_task(self.game_setup(player1, player2, ctx.channel, 1))
+
+    
     async def game_setup(self, player1, player2, channel, game_number):
         asyncio.current_task().set_name(f"gamesetup-{channel.id}")        
         await channel.send(f'```{self.game_title(game_number)}\n```')
@@ -121,9 +144,11 @@ class Ranked(commands.Cog):
             return False
         
         # Winner
-        set_finished = await asyncio.create_task(self.game_winner(player1, player2, channel, players_info, game_number))
+        set_finished, can_rematch = await asyncio.create_task(self.game_winner(player1, player2, channel, players_info, game_number))
         
         if set_finished:
+            if can_rematch:
+                await channel.send(f"Todavía podéis jugar un set de ranked más hoy. Escribid .rematch para jugar otro set.")
             await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
         elif set_finished is None:
             return False
@@ -199,13 +224,14 @@ class Ranked(commands.Cog):
                 resp_body = json.loads(html)
 
                 finished = resp_body['finished']
+                can_rematch = resp_body['can_rematch']
             else:
                 await channel.send("Error al guardar la persona ganadora.")
-                return None
+                return None, None
         
         # Send feedback message
         await channel.send(f"¡**{winner.nickname()}** {winner_emoji} ha ganado el **Game {game_number}**!")
-        return finished
+        return finished, can_rematch
 
     async def stage_strike(self, player1, player2, channel, is_first, last_winner):        
         asyncio.current_task().set_name(f"stagestrike-{channel.id}")

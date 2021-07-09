@@ -272,7 +272,43 @@ class PlayerViewSet(viewsets.ModelViewSet):
             messages = ranked_arena.get_messages() if ranked_arena else []
             return Response({'no_match': True, 'messages': messages}, status=status.HTTP_404_NOT_FOUND)
     
-    
+    @action(detail=True, methods=['get'])
+    def rematch(self, request, discord_id):
+        """
+        Allows a player that has just finished a ranked set to do another one.
+        """
+        player = self.get_object()
+
+        # Get finished game_set to get arena
+        game_set = GameSet.objects.filter(players=player).exclude(winner__isnull=True, arena__isnull=True).first()
+
+        if not game_set:
+            return Response(status=status.HTTP_404_NOT_FOUND)        
+        arena = game_set.arena
+
+        other_player = game_set.players.exclude(discord_id=discord_id).first()                
+
+        if not player.can_rematch(other_player):
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = GameSetSerializer(data={
+                    'guild': arena.guild.id,
+                    'players': [player.id for player in game_set.players.all()],
+                    'arena': arena.id
+        })
+
+        # Remove arena from last set
+        game_set.arena = None
+        game_set.save()
+        
+        if serializer.is_valid():
+            new_set = serializer.save()
+            new_set.add_game()
+        
+        return Response({
+            'player1': player.discord_id,
+            'player2': other_player.discord_id
+        }, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['get'])
     def matchmaking(self, request, discord_id):
@@ -617,13 +653,16 @@ class PlayerViewSet(viewsets.ModelViewSet):
         is_over = game_set.set_winner()
 
         if is_over:
-            # Close arena? Give option to keep doing friendlies? Rematch?
-            pass 
+            game_set.finish()
+            player1, player2 = game_set.players.all()            
+            can_rematch = player1.can_rematch(player2)
         else:
             game_set.add_game()
+            can_rematch = None
 
         response = {
-            'finished': is_over            
+            'finished': is_over,
+            'can_rematch': can_rematch            
         }
         
         return Response(response, status=status.HTTP_200_OK)
