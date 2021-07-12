@@ -81,6 +81,12 @@ class Matchmaking(commands.Cog):
             'created_by' : player.id,            
             'mode': 'RANKED'
         }
+        
+        # CHECK PLAYER IS CREATED, ELSE DO IT
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}') as response:
+            if response.status != 200:
+                flairing = self.bot.get_cog('Flairing')
+                await flairing.register(player, guild)
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/ranked/', json=body) as response:            
             # MATCH FOUND OR STARTED SEARCHING

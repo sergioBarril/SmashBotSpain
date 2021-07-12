@@ -186,7 +186,7 @@ class Flairing(commands.Cog):
                     return await ctx.send(f"El rol **{role.name}** no es un rol de {role_type}")
                 else:
                     logger.error("SET_ROLE ERROR 404")
-                    return await ctx.send(f"Error al modificar tus roles.", delete_after=ROLE_MESSAGE_TIME)
+                    return await ctx.send(f"Error al modificar tus roles.", delete_after=25)
     
     @commands.command(aliases=['import'])
     @commands.has_permissions(administrator=True)
@@ -442,11 +442,8 @@ class Flairing(commands.Cog):
 
     # ***************************
     #       R E G I S T E R
-    # ***************************
-    async def register(self, ctx):
-        guild = ctx.guild
-        player = guild.get_member(ctx.author.id)
-
+    # ***************************    
+    async def register(self, player, guild):
         # CANCEL PREVIOUS TASK
         tasks = asyncio.all_tasks()
         register_task_name = f"policy-{player.id}"
@@ -481,7 +478,7 @@ class Flairing(commands.Cog):
         
         except asyncio.CancelledError:
             await message.delete()
-            return False
+            raise
         
         # PLAYER PROFILE CREATION
         body = {

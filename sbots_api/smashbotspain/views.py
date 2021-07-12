@@ -5,7 +5,7 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
-from smashbotspain.models import Player, Arena, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer, Stage
+from smashbotspain.models import Player, Arena, Rating, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer, Stage
 from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
                                         MainSerializer, RegionSerializer, CharacterSerializer, StageSerializer)
 
@@ -50,21 +50,33 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 tier_roles.append(tier)
             # Characters
             elif character := characters.filter(discord_id=role_id).first():
-                pocket, created = Main.objects.update_or_create(player=player, character=character, defaults={
-                    'player': player,
-                    'character': character,
-                    'status': "MAIN" if mains_count < 2 else "SECOND"
-                })
+                if created:
+                    pocket, created = Main.objects.update_or_create(player=player, character=character, defaults={
+                        'player': player,
+                        'character': character,
+                        'status': "MAIN" if mains_count < 2 else "SECOND"
+                    })
 
-                mains_count += 1
+                    mains_count += 1
             # Region
             elif region := regions.filter(discord_id=role_id).first():
                 player.regions.add(region)
         
+        # Remove previous tier
+        if not created:
+            previous_tier = player.tier(guild)
+            if previous_tier:
+                player.tiers.remove(previous_tier)
+
         # Add only the highest tier role
         if tier_roles:
             tier_roles.sort(key=lambda tier : tier.weight, reverse=True)
             player.tiers.add(tier_roles[0])
+        
+        # Add MMR
+        if created:
+            player_mmr = Rating(player=player, guild=guild, score=player.tier(guild=guild).threshold)
+            player_mmr.save()
         
         return Response(status=status.HTTP_200_OK)
 
@@ -280,7 +292,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
         player = self.get_object()
 
         # Get finished game_set to get arena
-        game_set = GameSet.objects.filter(players=player).exclude(winner__isnull=True, arena__isnull=True).first()
+        game_set = GameSet.objects.filter(players=player).exclude(winner__isnull=True).exclude(arena__isnull=True).first()
 
         if not game_set:
             return Response(status=status.HTTP_404_NOT_FOUND)        
@@ -653,17 +665,27 @@ class PlayerViewSet(viewsets.ModelViewSet):
         is_over = game_set.set_winner()
 
         if is_over:
+            # Set finished_at
             game_set.finish()
+
+            # Check if rematch is available
             player1, player2 = game_set.players.all()            
             can_rematch = player1.can_rematch(player2)
-        else:
-            game_set.add_game()
-            can_rematch = None
+                        
+            # Update ratings            
+            winner_info, loser_info = game_set.update_ratings()
 
-        response = {
-            'finished': is_over,
-            'can_rematch': can_rematch            
-        }
+            response = {
+                'set_finished': True,
+                'can_rematch': can_rematch,
+                'winner_info': winner_info,
+                'loser_info': loser_info,
+            }
+        else:
+            game_set.add_game()            
+            response = {
+                'set_finished': False,                
+            }
         
         return Response(response, status=status.HTTP_200_OK)
 
@@ -1120,13 +1142,21 @@ class ArenaViewSet(viewsets.ModelViewSet):
         if player_status in ArenaPlayer.CANT_JOIN_STATUS or player_status == "ALREADY_SEARCHING" :
             return Response({"cant_join" : player_status}, status=status.HTTP_409_CONFLICT)
 
+        # Check ranked tier:
+        rating = player.get_rating(guild)
+        tier = player.tier(guild)
+        
+        # If in promotion
+        if rating.promotion_wins is not None: 
+            tier = tier.next(guild)
+        
         # Create my ranked arena
         arena_data = {
             'guild' : guild.discord_id,
             'created_by': player.discord_id,
             'mode': 'RANKED',
             'status': 'WAITING',
-            'tier': player.tier(guild).discord_id
+            'tier': tier.discord_id
         }
         arena_serializer = ArenaSerializer(data=arena_data)
         if arena_serializer.is_valid():
@@ -1152,14 +1182,14 @@ class ArenaViewSet(viewsets.ModelViewSet):
             return Response({
                 "match_found" : True,
                 "id": my_arena.id,
-                "tier": player.tier(guild).discord_id,
+                "tier": arena.tier.discord_id,
                 "player_one" : arena.created_by.discord_id,
                 "player_two" : player_id,
                 "messages" : [{'id': message.id, 'channel': message.channel_id} for message in arena_messages]
             }, status=status.HTTP_201_CREATED)        
         else:
             my_arena.set_status("SEARCHING")
-            return Response({"match_found": False, "tier": player.tier(guild).discord_id, "id": my_arena.id}, status=status.HTTP_201_CREATED)
+            return Response({"match_found": False, "tier": my_arena.tier.discord_id, "id": my_arena.id}, status=status.HTTP_201_CREATED)
 
 
 

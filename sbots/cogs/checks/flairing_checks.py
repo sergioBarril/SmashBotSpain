@@ -43,12 +43,13 @@ async def in_spam_channel(ctx):
             return False
 
 async def player_exists(ctx):
-    player = ctx.author    
+    player = ctx.author
+    guild = ctx.guild
     
     async with ctx.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}') as response:
         if response.status == 200:
             return True
         else:
-            await ctx.send("¡Aún no tienes tu perfil creado! Mira en tus MD.", delete_after=180)            
+            await ctx.send("¡Aún no tienes tu perfil creado! Mira en tus MD.", delete_after=180)
             flairing = ctx.bot.get_cog('Flairing')
-            return await flairing.register(ctx)
+            return await flairing.register(player, guild)

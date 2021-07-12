@@ -64,6 +64,48 @@ class Ranked(commands.Cog):
         asyncio.create_task(self.game_setup(player1, player2, ctx.channel, 1))
 
     
+
+
+    async def rating_response(self, player, guild, info):
+        """
+        Returns the text to send after a set, regarding a specific player.
+        """
+        is_promoted = info.get('promoted')
+        is_demoted = info.get('demoted')
+        
+        is_win = is_promoted is not None
+
+        is_promotion = info['promotion']['wins'] is not None
+        is_promotion_cancelled = info.get('promotion_cancelled')
+
+
+        if is_promoted or is_demoted:
+            new_tier = guild.get_role(info['tier']['new'])
+            old_tier = guild.get_role(info['tier']['old'])
+
+            await player.remove_roles(old_tier)
+            await player.add_roles(new_tier)
+
+        if is_promoted:
+            return f"¡Felicidades, **{player.nickname()}**! Pasas a ser {new_tier.mention}. Ve al canal a saludar :)"                
+        
+        if is_demoted:
+            new_tier = guild.get_role(info['tier']['new'])            
+            return f"**{player.nickname()}**, has caído a {new_tier.mention}... ¡pero no te desanimes! Seguro que en breves vuelves a subir."
+        
+        if is_promotion:                    
+            promotion_info = info['promotion']
+
+            if promotion_info['wins'] == 0 and promotion_info['losses'] == 0:
+                return f"¡Felicidades, **{player.nickname()}**! Acabas de entrar en promoción para la siguiente tier. Gana 3 de los próximos 5 sets (contra gente de esa tier), ¡y subirás!"                                                
+            return f"La promoción de **{player.nickname()}** va {promotion_info['wins']} - {promotion_info['losses']}."
+        
+        if is_promotion_cancelled:
+            return f"**{player.nickname()}**, no has superado la promoción. Te quedas en esta tier con {info['score']['new']} puntos."
+                        
+        return f"La puntuación de **{player.nickname()}** ha pasado a **{info['score']['new']}** ({'+' if is_win else '-'}{abs(info['score']['new'] - info['score']['old'])})."
+
+
     async def game_setup(self, player1, player2, channel, game_number):
         asyncio.current_task().set_name(f"gamesetup-{channel.id}")        
         await channel.send(f'```{self.game_title(game_number)}\n```')
@@ -144,17 +186,33 @@ class Ranked(commands.Cog):
             return False
         
         # Winner
-        set_finished, can_rematch = await asyncio.create_task(self.game_winner(player1, player2, channel, players_info, game_number))
+        game_end = await asyncio.create_task(self.game_winner(player1, player2, channel, players_info, game_number))
+        
+        if game_end is None:
+            return False
+
+        set_finished =  game_end['set_finished']
         
         if set_finished:
-            if can_rematch:
+            # New scores:
+            winner = game_end['winner']
+            loser = game_end['loser']
+
+            winner_info = game_end['winner_info']
+            loser_info = game_end['loser_info']
+
+            rating_text = await self.rating_response(winner, guild, winner_info)
+            rating_text += "\n" + await self.rating_response(loser, guild, loser_info)            
+
+            await channel.send(rating_text)
+
+            if game_end['can_rematch']:
                 await channel.send(f"Todavía podéis jugar un set de ranked más hoy. Escribid .rematch para jugar otro set.")
             await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
         elif set_finished is None:
             return False
         else:
             asyncio.create_task(self.game_setup(player1, player2, channel, game_number + 1))
-
 
 
     async def game_winner(self, player1, player2, channel, players_info, game_number):
@@ -223,15 +281,17 @@ class Ranked(commands.Cog):
                 html = await response.text()
                 resp_body = json.loads(html)
 
-                finished = resp_body['finished']
-                can_rematch = resp_body['can_rematch']
+                loser = player1 if winner == player2 else player2
+                resp_body['winner'] = winner
+                resp_body['loser'] = loser
+                
             else:
                 await channel.send("Error al guardar la persona ganadora.")
-                return None, None
+                return None
         
         # Send feedback message
         await channel.send(f"¡**{winner.nickname()}** {winner_emoji} ha ganado el **Game {game_number}**!")
-        return finished, can_rematch
+        return resp_body
 
     async def stage_strike(self, player1, player2, channel, is_first, last_winner):        
         asyncio.current_task().set_name(f"stagestrike-{channel.id}")
