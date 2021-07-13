@@ -1067,6 +1067,12 @@ class ArenaViewSet(viewsets.ModelViewSet):
 
         author = Player.objects.get(discord_id=request.data['author'])
 
+        # RANKED GAMES: Check if set is finished
+        if request.data.get('ranked'):
+            game_set = author.get_game_set()
+
+            if not game_set.winner:
+                return Response(status=status.HTTP_409_CONFLICT)
 
         # Check author in arena
         if arena:

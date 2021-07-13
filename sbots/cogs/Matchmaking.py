@@ -18,7 +18,7 @@ from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT,
                     EMOJI_HOURGLASS, NUMBER_EMOJIS)
 
 from .checks.flairing_checks import player_exists
-from .checks.matchmaking_checks import (in_arena, in_arena_or_ranked, in_tier_channel)
+from .checks.matchmaking_checks import (in_arena, in_arena_or_ranked, in_ranked, in_tier_channel)
 
 logger = logging.getLogger('discord')
 
@@ -275,10 +275,13 @@ class Matchmaking(commands.Cog):
         guild = ctx.guild
         author = ctx.author
 
+        is_ranked = in_ranked(ctx)
+
         body = {
             'channel_id' : arena_channel.id,
             'guild' : guild.id,
-            'author' : author.id
+            'author' : author.id,
+            'ranked' : is_ranked
         }
 
         async with self.bot.session.post('http://127.0.0.1:8000/arenas/ggs/', json=body) as response:
@@ -311,7 +314,9 @@ class Matchmaking(commands.Cog):
                     await arena_channel.delete()                    
                 else:
                     await arena_channel.set_permissions(author, read_messages=False, send_messages=False)
-            else:
+            elif response.status == 409:
+                await ctx.send("GG. ¡Pero aún queda set por jugar!")
+            else:                
                 await ctx.send("GGs. ¡Gracias por jugar!")        
     
     @commands.command(aliases=["cancel"])

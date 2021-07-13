@@ -208,11 +208,15 @@ class Player(models.Model):
         for ap in ArenaPlayer.objects.filter(player=self, status="INVITED").all():
             ap.delete()
 
-    def get_game(self):
+    def get_game_set(self):
         """
-        Returns the current game this player is playing.
+        Returns the current game set this player is playing
         """
         arena_player = ArenaPlayer.objects.filter(player=self, status="PLAYING").first()
+
+        if not arena_player:
+            return False
+        
         arena = arena_player.arena
         
         if arena.mode != "RANKED":
@@ -220,6 +224,14 @@ class Player(models.Model):
         
         game_set = arena.gameset_set.first()
 
+        return game_set
+
+
+    def get_game(self):
+        """
+        Returns the current game this player is playing.
+        """
+        game_set = self.get_game_set()
         # Get current game
         game = Game.objects.filter(game_set=game_set, winner=None).first()
         
