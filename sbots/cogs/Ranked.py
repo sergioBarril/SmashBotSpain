@@ -16,8 +16,8 @@ import logging
 from discord.ext import tasks, commands
 from discord.ext.commands.cooldowns import BucketType
 
-from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT, 
-                    EMOJI_HOURGLASS, NUMBER_EMOJIS)
+from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_LARGE_BLUE_DIAMOND, EMOJI_LARGE_ORANGE_DIAMOND, EMOJI_REJECT, 
+                    EMOJI_HOURGLASS, EMOJI_SKULL, EMOJI_SMALL_BLUE_DIAMOND, EMOJI_SMALL_ORANGE_DIAMOND, EMOJI_WHITE_MEDIUM_SMALL_SQUARE, NUMBER_EMOJIS, EMOJI_FIRE)
 
 from .checks.flairing_checks import player_exists
 from .checks.matchmaking_checks import (in_arena, in_arena_or_ranked, in_ranked, in_tier_channel)
@@ -43,6 +43,15 @@ class Ranked(commands.Cog):
 
 
     @commands.command()
+    async def leaderboard(self, ctx, tier : discord.Role):
+        updated = await self.update_leaderboard(tier)
+
+        if updated:
+            return await ctx.send(f"La leaderboard de la tier {tier.name} ha sido actualizada.", delete_after=10)
+        else:
+            return await ctx.send(f"No se ha podido actualizar la leaderboard.", delete_after=10)
+
+    @commands.command()
     @commands.check(in_ranked)
     async def rematch(self, ctx):
         player = ctx.author
@@ -63,7 +72,121 @@ class Ranked(commands.Cog):
         await ctx.send("Perfecto, ¡ahí va la revancha!")
         asyncio.create_task(self.game_setup(player1, player2, ctx.channel, 1))
 
-    
+
+    async def update_leaderboard(self, tier):
+        """
+        Updates the leaderboard message of the given tier
+        """
+        if not tier:
+            logger.error("No tier to update.")
+            return False
+        
+        async with self.bot.session.get(f'http://127.0.0.1:8000/tiers/{tier.id}/leaderboards/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+            else:
+                return False
+                
+        text = ""
+        guild = tier.guild
+        players = resp_body.get('players')
+        
+        embed = discord.Embed(title=f"**__{tier.name}__**", colour=tier.color)        
+        embed.set_footer(text="SmashBotSpain", icon_url="https://www.smashbros.com/assets_v2/img/top/hero05_en.jpg")
+        
+        if not players:
+            text += "No hay nadie en esta tier... ¡de momento!"
+            embed.set_image(url='https://media.giphy.com/media/3oriff4xQ7Oq2TIgTu/giphy.gif')
+
+        for player_info in players:
+            player = guild.get_member(player_info['id'])
+            rating = player_info['rating']
+            streak = player_info['streak']
+            
+            promotion_info = player_info['promotion_info']
+            promotion_wins = promotion_info['wins'] if promotion_info else None
+            promotion_losses = promotion_info['losses'] if promotion_info else None            
+            
+            emoji_dict = {
+                0 : EMOJI_WHITE_MEDIUM_SMALL_SQUARE,
+                1 : EMOJI_SMALL_ORANGE_DIAMOND,
+                -1 : EMOJI_SMALL_BLUE_DIAMOND,                
+                2 : EMOJI_LARGE_ORANGE_DIAMOND,
+                -2 : EMOJI_LARGE_BLUE_DIAMOND,
+            }
+            
+            if streak >= 3:
+                emoji = EMOJI_FIRE
+            elif streak <= -3:
+                emoji = EMOJI_SKULL
+            else:
+                emoji = emoji_dict.get(streak)
+
+
+            text += f" {emoji} "
+            
+            text += f"**{player.nickname()}** (_{rating}_) "
+
+
+            if promotion_info:
+                text += f" **[{promotion_wins} - {promotion_losses}]**"
+            
+            text += "\n"
+        
+
+        embed.add_field(name="Jugadores", value=text, inline=False)
+        leaderboard_channel = guild.get_channel(resp_body['leaderboard_channel'])
+        leaderboard_message = await leaderboard_channel.fetch_message(resp_body['leaderboard_message'])
+
+        # Edit the message
+        await leaderboard_message.edit(content="", embed=embed)
+        logger.info(f"{tier.name} leaderboard updated.")
+        return True
+
+
+    async def rating_response(self, player, guild, info):
+        """
+        Returns the text to send after a set, regarding a specific player.
+        """
+        is_promoted = info.get('promoted')
+        is_demoted = info.get('demoted')
+        
+        is_win = is_promoted is not None
+
+        is_promotion = info['promotion']['wins'] is not None
+        is_promotion_cancelled = info.get('promotion_cancelled')
+        
+        # Update leaderboards        
+        old_tier = guild.get_role(info['tier']['old_id'])
+        asyncio.create_task(self.update_leaderboard(old_tier))
+        
+        if is_promoted or is_demoted:
+            new_tier = guild.get_role(info['tier']['new_id'])
+            asyncio.create_task(self.update_leaderboard(new_tier))
+
+            await player.remove_roles(old_tier)
+            await player.add_roles(new_tier)
+
+        if is_promoted:
+            return f"¡Felicidades, **{player.nickname()}**! Pasas a ser {new_tier.mention}. Ve al canal a saludar :)"                
+        
+        if is_demoted:            
+            return f"**{player.nickname()}**, has caído a {new_tier.mention}... ¡pero no te desanimes! Seguro que en breves vuelves a subir."
+        
+        if is_promotion:                    
+            promotion_info = info['promotion']
+
+            if promotion_info['wins'] == 0 and promotion_info['losses'] == 0:
+                return f"¡Felicidades, **{player.nickname()}**! Acabas de entrar en promoción para la siguiente tier. Gana 3 de los próximos 5 sets (contra gente de esa tier), ¡y subirás!"                                                
+            return f"La promoción de **{player.nickname()}** va {promotion_info['wins']} - {promotion_info['losses']}."
+        
+        if is_promotion_cancelled:
+            return f"**{player.nickname()}**, no has superado la promoción. Te quedas en esta tier con {info['score']['new']} puntos."
+                        
+        return f"La puntuación de **{player.nickname()}** ha pasado a **{info['score']['new']}** ({'+' if is_win else '-'}{abs(info['score']['new'] - info['score']['old'])})."
+
+
     async def game_setup(self, player1, player2, channel, game_number):
         asyncio.current_task().set_name(f"gamesetup-{channel.id}")        
         await channel.send(f'```{self.game_title(game_number)}\n```')
@@ -144,17 +267,33 @@ class Ranked(commands.Cog):
             return False
         
         # Winner
-        set_finished, can_rematch = await asyncio.create_task(self.game_winner(player1, player2, channel, players_info, game_number))
+        game_end = await asyncio.create_task(self.game_winner(player1, player2, channel, players_info, game_number))
+        
+        if game_end is None:
+            return False
+
+        set_finished =  game_end['set_finished']
         
         if set_finished:
-            if can_rematch:
+            # New scores:
+            winner = game_end['winner']
+            loser = game_end['loser']
+
+            winner_info = game_end['winner_info']
+            loser_info = game_end['loser_info']
+
+            rating_text = await self.rating_response(winner, guild, winner_info)
+            rating_text += "\n" + await self.rating_response(loser, guild, loser_info)            
+
+            await channel.send(rating_text)
+
+            if game_end['can_rematch']:
                 await channel.send(f"Todavía podéis jugar un set de ranked más hoy. Escribid .rematch para jugar otro set.")
             await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
         elif set_finished is None:
             return False
         else:
             asyncio.create_task(self.game_setup(player1, player2, channel, game_number + 1))
-
 
 
     async def game_winner(self, player1, player2, channel, players_info, game_number):
@@ -223,15 +362,17 @@ class Ranked(commands.Cog):
                 html = await response.text()
                 resp_body = json.loads(html)
 
-                finished = resp_body['finished']
-                can_rematch = resp_body['can_rematch']
+                loser = player1 if winner == player2 else player2
+                resp_body['winner'] = winner
+                resp_body['loser'] = loser
+                
             else:
                 await channel.send("Error al guardar la persona ganadora.")
-                return None, None
+                return None
         
         # Send feedback message
         await channel.send(f"¡**{winner.nickname()}** {winner_emoji} ha ganado el **Game {game_number}**!")
-        return finished, can_rematch
+        return resp_body
 
     async def stage_strike(self, player1, player2, channel, is_first, last_winner):        
         asyncio.current_task().set_name(f"stagestrike-{channel.id}")

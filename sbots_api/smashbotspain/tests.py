@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 
 # Models
-from smashbotspain.models import Arena, Player, ArenaPlayer, Tier, Message, Guild
+from smashbotspain.models import Arena, Player, ArenaPlayer, Rating, Tier, Message, Guild
 
 def make_player(discord_id, tier=None):
     player = Player(
@@ -46,8 +46,16 @@ class ArenaTestCase(TestCase):
         self.tier4 = make_tier(discord_id=54678987656, channel_id=1231566, weight=1, guild=self.guild)
 
         # Setup Players        
-        self.tropped = make_player(discord_id=12345678987654, tier=self.tier1)
-        self.razen = make_player(discord_id=45678987654321, tier=self.tier1)
+        self.tropped = make_player(discord_id=12345678987654, tier=self.tier2)
+        self.razen = make_player(discord_id=45678987654321, tier=self.tier2)
+
+        # Make Ratings
+        rat_tropped = Rating(player=self.tropped, guild=self.guild, score=self.tier2.threshold)
+        rat_razen = Rating(player=self.razen, guild=self.guild, score=self.tier2.threshold)
+
+        rat_tropped.save()
+        rat_razen.save()
+
 
     def test_friendlies_search(self):
         client = APIClient()

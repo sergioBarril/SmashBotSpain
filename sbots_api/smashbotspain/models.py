@@ -16,6 +16,7 @@ class Guild(models.Model):
     list_message = models.BigIntegerField(null=True, blank=True)
     ranked_channel = models.BigIntegerField(null=True, blank=True)
     ranked_message = models.BigIntegerField(null=True, blank=True)
+    leaderboard_channel = models.BigIntegerField(null=True, blank=True)
     
     match_timeout = models.IntegerField(default=600,
         validators=[
@@ -69,6 +70,9 @@ class Tier(models.Model):
     channel_id = models.BigIntegerField(null=True)
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
+    threshold = models.IntegerField(default=1200)
+    leaderboard_message = models.BigIntegerField(null=True, blank=True)
+
     def __str__(self):
         return f"Tier {self.discord_id} (Weight: {self.weight})"
     
@@ -82,6 +86,21 @@ class Tier(models.Model):
     
     def between(self, min_tier, max_tier):
         return min_tier.weight <= self.weight and self.weight <= max_tier.weight
+    
+    def next(self, guild):
+        """
+        Returns the next tier in this guild (i.e if self is Tier 3, return Tier 2)
+        Returns None if there isn't one.
+        """
+        return Tier.objects.filter(guild=self.guild, weight= self.weight + 1).first()
+    
+    def previous(self, guild):
+        """
+        Returns the previous tier in this guild (i.e if self is Tier 3, return Tier 4)
+        Returns None if there isn't one.
+        """
+        return Tier.objects.filter(guild=self.guild, weight= self.weight - 1).first()
+
 
 class Player(models.Model):
     discord_id = models.BigIntegerField()
@@ -101,6 +120,27 @@ class Player(models.Model):
         Returns the tier of the player in the given guild
         """
         return self.tiers.filter(guild=guild).first()
+    
+    def set_tier(self, tier, guild):
+        """
+        Sets the new tier for this player. If he was in promotion, he's not anymore
+        """
+        # Set new tier
+        current_tier = self.tier(guild)
+        self.tiers.remove(current_tier)
+        self.tiers.add(tier)
+        self.save()
+
+        # Adjust rating
+        rating = Rating.objects.filter(guild=guild, player=self).first()
+        rating.promotion_wins = None
+        rating.promotion_losses = None
+
+        rating.score = tier.threshold
+        rating.save()
+
+        return True
+
 
     def status(self):
         """
@@ -168,11 +208,15 @@ class Player(models.Model):
         for ap in ArenaPlayer.objects.filter(player=self, status="INVITED").all():
             ap.delete()
 
-    def get_game(self):
+    def get_game_set(self):
         """
-        Returns the current game this player is playing.
+        Returns the current game set this player is playing
         """
         arena_player = ArenaPlayer.objects.filter(player=self, status="PLAYING").first()
+
+        if not arena_player:
+            return False
+        
         arena = arena_player.arena
         
         if arena.mode != "RANKED":
@@ -180,6 +224,14 @@ class Player(models.Model):
         
         game_set = arena.gameset_set.first()
 
+        return game_set
+
+
+    def get_game(self):
+        """
+        Returns the current game this player is playing.
+        """
+        game_set = self.get_game_set()
         # Get current game
         game = Game.objects.filter(game_set=game_set, winner=None).first()
         
@@ -205,6 +257,169 @@ class Player(models.Model):
 
         players = players.exclude(id__in=can_rematch_ids)
         return players
+
+    def get_rating(self, guild):
+        """
+        Given a guild, returns the rating of the player
+        """
+        return self.rating_set.filter(guild=guild).first()
+    
+    def get_streak(self, guild, capped = True):
+        """
+        Given a guild, returns how many sets in a row he has won/lost. The number will be positive if it's wins,
+        negative if it's losses.
+        If capped is True, this will limit the results to the last 4 sets
+        """        
+        last_sets = GameSet.objects.filter(guild=guild, players=self).order_by('-created_at')
+
+        if capped:
+            last_sets = last_sets[:4]
+
+        streak = 0
+        
+        for game_set in last_sets:
+            if game_set.winner == self and streak >= 0:
+                streak += 1
+            elif game_set.winner != self and streak <= 0:
+                streak -= 1
+            else:
+                break
+        
+        return streak
+
+class Rating(models.Model):
+    player = models.ForeignKey(Player, on_delete=models.CASCADE)
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE)
+
+    score = models.IntegerField(default=1000)
+    promotion_wins = models.IntegerField(null=True, blank=True)
+    promotion_losses = models.IntegerField(null=True, blank=True)
+
+
+    def __str__(self):
+        return f"{self.player.discord_id} rating: {self.score}"
+    
+    def get_probability(self, other_rating):
+        """
+        Returns the probability that self.player wins the set against player2
+        """
+        qa = 10 ** (self.score / 400)
+        qb = 10 ** (other_rating.score / 400)
+
+        return qa/(qa + qb)
+    
+    def win(self):        
+        old_score = self.score
+        old_tier = self.player.tier(self.guild)
+        new_tier = old_tier
+        promoted = False
+        
+        next_tier = old_tier.next(self.guild)
+
+        # Not in promotion
+        if self.promotion_wins is None:
+            if next_tier:
+                self.score = int(self.score + 20 + 5 * self.player.get_streak(self.guild))
+            else:
+                self.score = int(self.score + 20)
+            self.save()
+            
+            # Start promotion
+            if next_tier and self.score >= next_tier.threshold:
+                self.score = next_tier.threshold
+                self.promotion_wins, self.promotion_losses = 0, 0                
+        else:            
+            self.promotion_wins += 1            
+            if self.promotion_wins == 3:
+                # Tier up
+                promoted = True
+                new_tier = next_tier
+                self.player.set_tier(new_tier, self.guild)
+                self.promotion_wins, self.promotion_losses = None, None
+
+        self.save()
+        return {
+            'promoted': promoted,
+            'score':{
+                'old': old_score,
+                'new': self.score,
+            },
+            'promotion': {
+                'wins': self.promotion_wins,
+                'losses': self.promotion_losses
+            },
+            'tier': {
+                'old_id': old_tier.discord_id,                
+                'new_id': new_tier.discord_id,
+                'old_leaderboard': old_tier.leaderboard_message,
+                'new_leaderboard': new_tier.leaderboard_message,
+            }            
+        }
+    
+    def lose(self):
+        old_score = self.score
+        old_tier = self.player.tier(self.guild)
+        new_tier = old_tier
+        demoted = False
+        promotion_cancelled = False
+        
+        next_tier = old_tier.next(self.guild)
+        previous_tier = old_tier.previous(self.guild)
+        
+        # Not in promotion
+        if self.promotion_losses is None:
+            # Score update
+            if next_tier:
+                new_score = int(self.score - 20 + 5 * self.player.get_streak(self.guild))
+            else:
+                new_score = int(self.score - 20) # Tier 1 doesn't get streak points
+
+            if new_score < 900:
+                new_score = 900
+            self.score = new_score
+            self.save()
+            
+            # Get demoted
+            if previous_tier and self.score < old_tier.threshold - 100:
+                demoted = True
+                
+                self.player.set_tier(previous_tier, self.guild)
+                self.score = new_score
+                new_tier = previous_tier                
+                
+        
+        # Promotion
+        else:
+            self.promotion_losses += 1
+            if self.promotion_losses == 3:
+                # Stop promotion and -100 score
+                self.score -= 100
+                self.promotion_wins, self.promotion_losses = None, None
+                self.save()
+                promotion_cancelled = True
+       
+        self.save()
+        return {
+            'demoted': demoted,
+            'promotion_cancelled': promotion_cancelled,
+            'score':{
+                'old': old_score,
+                'new': self.score,
+            },
+            'promotion': {
+                'wins': self.promotion_wins,
+                'losses': self.promotion_losses
+            },
+            'tier': {
+                'old_id': old_tier.discord_id,
+                'new_id': new_tier.discord_id,
+                'old_leaderboard': old_tier.leaderboard_message,
+                'new_leaderboard': new_tier.leaderboard_message,
+            }            
+        }
+
+
+
 
 
 class Main(models.Model):
@@ -364,7 +579,7 @@ class GameSet(models.Model):
     ]
     
     win_condition = models.CharField(max_length=40, choices=WIN_CONDITIONS)
-    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_set")    
+    winner = models.ForeignKey(Player, null=True, on_delete=models.SET_NULL, related_name="winner_set", blank=True)
     arena = models.ForeignKey(Arena, null=True, on_delete=models.SET_NULL)
 
     def add_game(self):
@@ -413,6 +628,28 @@ class GameSet(models.Model):
     def finish(self):
         self.finished_at = timezone.now()        
         self.save()
+
+    def update_ratings(self):
+        """
+        Updates the ELO of both players
+        """
+        # Get winner and loser
+        winner = self.winner
+        if winner is None:
+            return False
+
+        winner_rating = winner.get_rating(guild=self.guild)        
+        
+        loser = self.players.exclude(discord_id=winner.discord_id).first()
+        if loser is None:
+            return False
+        loser_rating = loser.get_rating(guild=self.guild)
+
+        # Update scores, promotions, etc.
+        winner_info = winner_rating.win()
+        loser_info = loser_rating.lose()
+
+        return winner_info, loser_info
 
 class Stage(models.Model):
     TYPES = [
