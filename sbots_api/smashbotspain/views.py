@@ -735,15 +735,13 @@ class PlayerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def score(self, request, discord_id):
         """
-        Returns the score of the current GameSet this player is playing
+        Returns the score of the current GameSet this player is playing (or has just finished)
         """
         player = self.get_object()
-        game = player.get_game()
+        game_set = player.get_game_set()
 
-        if not game:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
-        
-        game_set = game.game_set
+        if not game_set:
+            return Response(status=status.HTTP_400_BAD_REQUEST)        
 
         this_player_wins = game_set.game_set.filter(winner=player).count()
         other_player_wins = game_set.game_set.exclude(winner=player).exclude(winner__isnull=True).count()

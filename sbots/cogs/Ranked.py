@@ -257,6 +257,20 @@ class Ranked(commands.Cog):
         return f"La puntuación de **{player.nickname()}** ha pasado a **{info['score']['new']}** ({'+' if is_win else '-'}{abs(info['score']['new'] - info['score']['old'])})."
 
 
+    async def score(self, player):
+        """
+        Returns the information of the current score in the game
+        """
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/score/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                p1_wins = resp_body['player_wins']
+                p2_wins = resp_body['other_player_wins']
+                
+                return resp_body
+
     async def game_setup(self, player1, player2, channel, game_number):
         asyncio.current_task().set_name(f"gamesetup-{channel.id}")        
         await channel.send(f'```{self.game_title(game_number)}\n```')
@@ -265,15 +279,11 @@ class Ranked(commands.Cog):
         if is_first:
             await channel.send(f'Escoged personajes -- os he enviado un MD.')
         else:
-            async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player1.id}/score/') as response:
-                if response.status == 200:
-                    html = await response.text()
-                    resp_body = json.loads(html)
-
-                    p1_wins = resp_body['player_wins']
-                    p2_wins = resp_body['other_player_wins']
-                
-                    await channel.send(f"El contador está **{player1.nickname()}** {p1_wins} - {p2_wins} **{player2.nickname()}**.")
+            score = await self.score(player1)
+            p1_wins = score['player_wins']
+            p2_wins = score['other_player_wins']
+            
+            await channel.send(f"El marcador está **{player1.nickname()}** {p1_wins} - {p2_wins} **{player2.nickname()}**.")
 
         guild = channel.guild
         players = (player1, player2)
@@ -360,6 +370,12 @@ class Ranked(commands.Cog):
         # New scores:
         winner = info['winner']
         loser = info['loser']
+
+        score = await self.score(winner)
+        p1_wins = score['player_wins']
+        p2_wins = score['other_player_wins']
+            
+        await channel.send(f"¡Se acabó! **{winner.nickname()}** gana el set {p1_wins} - {p2_wins} contra **{loser.nickname()}**.")
 
         winner_info = info['winner_info']
         loser_info = info['loser_info']
