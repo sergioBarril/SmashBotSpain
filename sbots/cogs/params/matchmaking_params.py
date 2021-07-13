@@ -15,6 +15,8 @@ EMOJI_LARGE_ORANGE_DIAMOND = "\U0001f536"
 
 EMOJI_WHITE_MEDIUM_SMALL_SQUARE = "\U000025fd"
 
+EMOJI_RECYCLE = "\U0000267b"
+
 
 NUMBER_EMOJIS = (
     *[f'{i}\N{variation selector-16}\N{combining enclosing keycap}' for i in range(1, 10)],

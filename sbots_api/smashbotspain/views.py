@@ -1113,6 +1113,9 @@ class ArenaViewSet(viewsets.ModelViewSet):
         if request.data.get('ranked'):
             game_set = author.get_game_set()
 
+            if not game_set:
+                return Response(status=status.HTTP_400_BAD_REQUEST)
+
             if not game_set.winner:
                 return Response(status=status.HTTP_409_CONFLICT)
 

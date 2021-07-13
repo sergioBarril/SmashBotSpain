@@ -16,7 +16,7 @@ import logging
 from discord.ext import tasks, commands
 from discord.ext.commands.cooldowns import BucketType
 
-from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_LARGE_BLUE_DIAMOND, EMOJI_LARGE_ORANGE_DIAMOND, EMOJI_REJECT, 
+from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_LARGE_BLUE_DIAMOND, EMOJI_LARGE_ORANGE_DIAMOND, EMOJI_RECYCLE, EMOJI_REJECT, 
                     EMOJI_HOURGLASS, EMOJI_SKULL, EMOJI_SMALL_BLUE_DIAMOND, EMOJI_SMALL_ORANGE_DIAMOND, EMOJI_WHITE_MEDIUM_SMALL_SQUARE, NUMBER_EMOJIS, EMOJI_FIRE)
 
 from .checks.flairing_checks import player_exists
@@ -89,12 +89,43 @@ class Ranked(commands.Cog):
             return await ctx.send(f"La leaderboard de la tier {tier.name} ha sido actualizada.", delete_after=10)
         else:
             return await ctx.send(f"No se ha podido actualizar la leaderboard.", delete_after=10)
+            
+    async def rematch(self, player1, player2, channel, message):
+        """
+        Handles the confirmation for rematch.
+        """
+        guild = channel.guild
+        players = player1, player2
+        
+        # WAIT FOR REACTIONS
+        emoji = EMOJI_RECYCLE
+        await message.add_reaction(emoji)        
 
-    @commands.command()
-    @commands.check(in_ranked)
-    async def rematch(self, ctx):
-        player = ctx.author
-        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/rematch/') as response:
+        # Wait for an agreement
+        decided = False
+        while not decided:
+            def check(payload):
+                return str(payload.emoji) == emoji and payload.message_id == message.id and payload.member in players
+
+            # Wait for a reaction, and remove the other one
+            raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
+            reacted_emoji = str(raw_reaction.emoji)            
+
+            # Refetch message
+            message = await channel.fetch_message(message.id)
+        
+            # Check if agreement is reached
+            reactions = message.reactions  
+            winner_emoji = None
+            for reaction in reactions:                
+                if str(reaction.emoji) != emoji:
+                    continue
+                if reaction.count == 3:                    
+                    decided = True
+                    break
+        
+        # DO REMATCH
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player1.id}/rematch/') as response:
             if response.status == 200:
                 html = await response.text()
                 resp_body = json.loads(html)
@@ -102,14 +133,14 @@ class Ranked(commands.Cog):
                 player1_id = resp_body['player1']
                 player2_id = resp_body['player2']
 
-                player1 = ctx.guild.get_member(player1_id)
-                player2 = ctx.guild.get_member(player2_id)
+                player1 = guild.get_member(player1_id)
+                player2 = guild.get_member(player2_id)
             
             else:
-                return await ctx.send("Error al intentar hacer rematch. Probablemente ya hayáis jugado demasiado hoy.")
+                return await channel.send("Error al intentar hacer rematch. Probablemente ya hayáis jugado demasiado hoy.")
         
-        await ctx.send("Perfecto, ¡ahí va la revancha!")
-        asyncio.create_task(self.game_setup(player1, player2, ctx.channel, 1))
+        await channel.send("Perfecto, ¡ahí va la revancha!")
+        asyncio.create_task(self.game_setup(player1, player2, channel, 1))
 
 
     async def update_leaderboard(self, tier):
@@ -339,8 +370,13 @@ class Ranked(commands.Cog):
         await channel.send(rating_text)
 
         if info['can_rematch']:
-            await channel.send(f"Todavía podéis jugar un set de ranked más hoy. Escribid .rematch para jugar otro set.")
+            message = await channel.send(f"Todavía podéis jugar un set de ranked más hoy. Reaccionad ambos a este mensaje con {EMOJI_RECYCLE} para jugar otro set.")
+            await channel.send(f"Si no, podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
+            await self.rematch(winner, loser, channel, message)
+        
         await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
+
+
 
     async def game_winner(self, player1, player2, channel, players_info, game_number):
         """
