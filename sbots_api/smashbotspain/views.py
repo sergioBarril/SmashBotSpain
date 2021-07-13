@@ -78,7 +78,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
             player_mmr = Rating(player=player, guild=guild, score=player.tier(guild=guild).threshold)
             player_mmr.save()
         
-        return Response(status=status.HTTP_200_OK)
+        return Response({'tier': player.tier(guild).discord_id}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def profile(self, request, discord_id):
@@ -906,6 +906,45 @@ class TierViewSet(viewsets.ModelViewSet):
 
         return Response({'count': role_count}, status=status.HTTP_200_OK)
 
+    @action(methods=['get'], detail=True)
+    def leaderboards(self, request, discord_id):
+        """
+        Gets the info needed to update the leaderboard of a particular tier.
+        """
+        tier = self.get_object()
+        guild = tier.guild
+
+        # Get players in this tier
+        players = Player.objects.filter(tiers=tier).order_by('-rating').all()
+
+        player_infos = []
+        for player in players:
+            rating = Rating.objects.get(player=player)
+            
+            if rating.promotion_wins is None:
+                promotion_info = None
+            else:
+                promotion_info = {
+                    'wins': rating.promotion_wins,
+                    'losses': rating.promotion_losses
+                }
+
+            player_info = {
+                'id' : player.discord_id,
+                'rating': rating.score, 
+                'promotion_info': promotion_info,
+                'streak': player.get_streak(guild, capped=False)
+            }
+
+            player_infos.append(player_info)
+        
+        response = {
+            'players': player_infos,
+            'leaderboard_channel' : guild.leaderboard_channel,
+            'leaderboard_message' : tier.leaderboard_message,
+        }
+
+        return Response(response, status=status.HTTP_200_OK)
 
 
 class GuildViewSet(viewsets.ModelViewSet):

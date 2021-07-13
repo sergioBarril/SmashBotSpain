@@ -490,6 +490,12 @@ class Flairing(commands.Cog):
         async with self.bot.session.post(f'http://127.0.0.1:8000/players/', json=body) as response:
             if response.status == 200:                
                 await player.send("¡Perfil creado! Ya puedes usar el resto de comandos del bot.")
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                tier = guild.get_role(resp_body['tier'])
+                ranked = self.bot.get_cog('Ranked')
+                asyncio.create_task(ranked.update_leaderboard(tier))
                 return True
             else:
                 logger.error("PLAYER CREATION ERROR")

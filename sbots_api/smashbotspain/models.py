@@ -16,6 +16,7 @@ class Guild(models.Model):
     list_message = models.BigIntegerField(null=True, blank=True)
     ranked_channel = models.BigIntegerField(null=True, blank=True)
     ranked_message = models.BigIntegerField(null=True, blank=True)
+    leaderboard_channel = models.BigIntegerField(null=True, blank=True)
     
     match_timeout = models.IntegerField(default=600,
         validators=[
@@ -70,6 +71,7 @@ class Tier(models.Model):
     guild = models.ForeignKey(Guild, null=True, on_delete=models.CASCADE)
 
     threshold = models.IntegerField(default=1200)
+    leaderboard_message = models.BigIntegerField(null=True, blank=True)
 
     def __str__(self):
         return f"Tier {self.discord_id} (Weight: {self.weight})"
@@ -250,12 +252,17 @@ class Player(models.Model):
         """
         return self.rating_set.filter(guild=guild).first()
     
-    def get_streak(self, guild):
+    def get_streak(self, guild, capped = True):
         """
         Given a guild, returns how many sets in a row he has won/lost. The number will be positive if it's wins,
         negative if it's losses.
-        """
-        last_sets = GameSet.objects.filter(guild=guild, players=self).order_by('-created_at')[:4]
+        If capped is True, this will limit the results to the last 4 sets
+        """        
+        last_sets = GameSet.objects.filter(guild=guild, players=self).order_by('-created_at')
+
+        if capped:
+            last_sets = last_sets[:4]
+
         streak = 0
         
         for game_set in last_sets:
@@ -330,8 +337,10 @@ class Rating(models.Model):
                 'losses': self.promotion_losses
             },
             'tier': {
-                'old': old_tier.discord_id,
-                'new': new_tier.discord_id
+                'old_id': old_tier.discord_id,                
+                'new_id': new_tier.discord_id,
+                'old_leaderboard': old_tier.leaderboard_message,
+                'new_leaderboard': new_tier.leaderboard_message,
             }            
         }
     
@@ -390,8 +399,10 @@ class Rating(models.Model):
                 'losses': self.promotion_losses
             },
             'tier': {
-                'old': old_tier.discord_id,
-                'new': new_tier.discord_id
+                'old_id': old_tier.discord_id,
+                'new_id': new_tier.discord_id,
+                'old_leaderboard': old_tier.leaderboard_message,
+                'new_leaderboard': new_tier.leaderboard_message,
             }            
         }
 

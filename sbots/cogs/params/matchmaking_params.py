@@ -4,6 +4,18 @@ EMOJI_CONFIRM = '\u2705' #✅
 EMOJI_REJECT = '\u274C' #❌
 EMOJI_HOURGLASS = '\U000023f3'
 
+EMOJI_FIRE = '\U0001f525' #🔥
+EMOJI_SKULL = '\U0001f480' #💀
+
+EMOJI_SMALL_BLUE_DIAMOND = "\U0001f539"
+EMOJI_SMALL_ORANGE_DIAMOND = "\U0001f538"
+
+EMOJI_LARGE_BLUE_DIAMOND = "\U0001f537"
+EMOJI_LARGE_ORANGE_DIAMOND = "\U0001f536"
+
+EMOJI_WHITE_MEDIUM_SMALL_SQUARE = "\U000025fd"
+
+
 NUMBER_EMOJIS = (
     *[f'{i}\N{variation selector-16}\N{combining enclosing keycap}' for i in range(1, 10)],
     '\N{keycap ten}',
