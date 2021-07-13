@@ -41,6 +41,45 @@ class Ranked(commands.Cog):
         """
         return f'*******************\n     G A M E  {game_number}\n*******************'
 
+    @commands.command(aliases=["ff"])
+    @commands.check(in_ranked)
+    async def surrender(self, ctx):
+        """
+        Surrenders the set.
+        """
+        guild = ctx.guild
+        player = ctx.author
+
+        # Cancel other tasks
+        tasks = asyncio.all_tasks()
+
+        for task in tasks:
+            if task.get_name() == f'gamesetup-{ctx.channel.id}':
+                logger.info(f"Task {task.get_name()} cancelled.")
+                task.cancel()
+            
+        # Surrender in DB
+        async with self.bot.session.post(f'http://127.0.0.1:8000/players/{player.id}/surrender/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                # Get winner and loser
+                winner = guild.get_member(resp_body['winner_info']['player'])
+                loser = guild.get_member(resp_body['loser_info']['player'])                 
+                resp_body['winner'] = winner
+                resp_body['loser'] = loser                
+            elif response.status == 400:
+                return await ctx.channel.send("No estás jugando ninguna ranked... ¡así que no te rindas!")
+            else:
+                logger.error("Error in .surrender")
+                await ctx.channel.send("Error al rendirse.")
+                return None
+        
+        # Send feedback message
+        await ctx.channel.send(f"¡**{winner.nickname()}** ha ganado el set por abandono!")
+
+        await self.set_end(ctx.channel, resp_body)
 
     @commands.command()
     async def leaderboard(self, ctx, tier : discord.Role):
@@ -275,26 +314,33 @@ class Ranked(commands.Cog):
         set_finished =  game_end['set_finished']
         
         if set_finished:
-            # New scores:
-            winner = game_end['winner']
-            loser = game_end['loser']
-
-            winner_info = game_end['winner_info']
-            loser_info = game_end['loser_info']
-
-            rating_text = await self.rating_response(winner, guild, winner_info)
-            rating_text += "\n" + await self.rating_response(loser, guild, loser_info)            
-
-            await channel.send(rating_text)
-
-            if game_end['can_rematch']:
-                await channel.send(f"Todavía podéis jugar un set de ranked más hoy. Escribid .rematch para jugar otro set.")
-            await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
+            await self.set_end(channel, game_end)
         elif set_finished is None:
             return False
         else:
             asyncio.create_task(self.game_setup(player1, player2, channel, game_number + 1))
 
+    async def set_end(self, channel, info):
+        """
+        Handles the end of a set (message sending, tier changes, ratings, etc.) or creating a new game
+        """
+        guild = channel.guild
+        
+        # New scores:
+        winner = info['winner']
+        loser = info['loser']
+
+        winner_info = info['winner_info']
+        loser_info = info['loser_info']
+
+        rating_text = await self.rating_response(winner, guild, winner_info)
+        rating_text += "\n" + await self.rating_response(loser, guild, loser_info)            
+
+        await channel.send(rating_text)
+
+        if info['can_rematch']:
+            await channel.send(f"Todavía podéis jugar un set de ranked más hoy. Escribid .rematch para jugar otro set.")
+        await channel.send(f"Podéis seguir jugando en esta arena para hacer freeplays. Cerradla usando `.ggs` cuando acabéis.")
 
     async def game_winner(self, player1, player2, channel, players_info, game_number):
         """

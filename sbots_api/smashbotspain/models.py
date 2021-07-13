@@ -340,6 +340,7 @@ class Rating(models.Model):
         self.save()
         return {
             'promoted': promoted,
+            'player': self.player.discord_id,
             'score':{
                 'old': old_score,
                 'new': self.score,
@@ -401,6 +402,7 @@ class Rating(models.Model):
         self.save()
         return {
             'demoted': demoted,
+            'player': self.player.discord_id,
             'promotion_cancelled': promotion_cancelled,
             'score':{
                 'old': old_score,

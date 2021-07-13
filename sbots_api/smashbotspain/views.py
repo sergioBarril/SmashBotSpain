@@ -689,6 +689,48 @@ class PlayerViewSet(viewsets.ModelViewSet):
         
         return Response(response, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'])
+    def surrender(self, request, discord_id):
+        """
+        Marks the current set as a loss.
+        """
+        player = self.get_object()
+        game_set = player.get_game_set()
+
+        if not game_set:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        
+        game = player.get_game()
+        
+        if not game:
+            return Response(status=status.HTTP_400_BAD_REQUEST)        
+        
+        # Set winner
+        players = game_set.players.all()
+
+        winner = players.exclude(discord_id=player.discord_id).first()
+        game.set_winner(winner)
+        
+        game_set.winner = winner
+        game_set.save()
+
+        # Set finished_at
+        game_set.finish()        
+                        
+        # Update ratings
+        winner_info, loser_info = game_set.update_ratings()
+
+        response = {
+                'set_finished': True,
+                'can_rematch': False,
+                'winner_info': winner_info,
+                'loser_info': loser_info,
+            }
+
+        return Response(response, status=status.HTTP_200_OK)
+
+
+
     
     @action(detail=True, methods=['get'])
     def score(self, request, discord_id):
