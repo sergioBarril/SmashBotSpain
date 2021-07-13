@@ -915,7 +915,7 @@ class TierViewSet(viewsets.ModelViewSet):
         guild = tier.guild
 
         # Get players in this tier
-        players = Player.objects.filter(tiers=tier).order_by('-rating').all()
+        players = Player.objects.filter(tiers=tier).order_by('-rating__score').all()
 
         player_infos = []
         for player in players:
