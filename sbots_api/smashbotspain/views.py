@@ -1079,8 +1079,18 @@ class ArenaViewSet(viewsets.ModelViewSet):
         for arena in arenas:
             arena_dict = {'guild': arena.guild.discord_id, 'channel': arena.channel_id,
                 'player': arena.created_by.discord_id,
+                'status': arena.status,
+                'mode': arena.mode,
                 'messages': [{'id': message.id, 'channel': message.channel_id} for message in arena.message_set.all()]}
             response.append(arena_dict)
+
+            # Clean up ranked
+            game_set = arena.gameset_set.first()
+            if arena.mode == "RANKED" and game_set:                
+                # If it hasn't finished yet, delete it
+                if game_set.winner is None:
+                    game_set.delete()
+            
             arena.delete()
 
         return Response({'arenas': response}, status=status.HTTP_200_OK)

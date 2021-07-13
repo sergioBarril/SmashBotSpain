@@ -1101,9 +1101,15 @@ class Matchmaking(commands.Cog):
                     arena_channel.delete()
             
             # MEMBER
+            status = arena.get('status', '')
+            mode = arena.get('mode', 'FRIENDLIES')
             member = guild.get_member(arena.get('player'))
+            
             if member:
-                member_set.add(member)
+                if status == "PLAYING" and mode == "RANKED":
+                    await member.send(f"¡Dejaste una ranked a medias! Te la he cerrado y haremos como que ese set nunca ha existido... ¡pero acaba tus sets!")
+                elif status != "PLAYING":
+                    member_set.add(member)
                 
             # DELETE MESSAGES
             await self.delete_messages(guild, arena.get('messages', []))
