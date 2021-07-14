@@ -146,8 +146,9 @@ class Flairing(commands.Cog):
                 
                 # ERROR WITH TIER
                 elif tier_error:
+                    logger.error(f"Error with tier ping setting: {resp_body}")
                     player_tier_id = resp_body.get('player_tier', None)
-                    wanted_tier_id = resp_body.get('id', None)
+                    wanted_tier_id = resp_body.get('discord_id', None)
 
                     player_tier = guild.get_role(player_tier_id)                    
                     wanted_tier = guild.get_role(wanted_tier_id)

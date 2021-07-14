@@ -1013,8 +1013,9 @@ class GuildViewSet(viewsets.ModelViewSet):
         # TIERS        
         tier_lists = response['tiers']
         for tier in tiers:
-            tier_lists.append({'id' : tier.discord_id, 'players': [arena.created_by.discord_id for arena in friendlies_searching
-                                                                if tier.between(arena.min_tier, arena.max_tier)]})
+            tier_lists.append({'id' : tier.discord_id, 'friendlies_players': [arena.created_by.discord_id for arena in friendlies_searching
+                                if tier.between(arena.min_tier, arena.max_tier)],
+                                'ranked_players': [arena.created_by.discord_id for arena in ranked_searching if tier == arena.tier]})
         # CONFIRMATION
         confirmation_arenas = Arena.objects.filter(status="CONFIRMATION")
         confirmation_list = response['confirmation']

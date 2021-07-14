@@ -14,7 +14,7 @@ import logging
 from discord.ext import tasks, commands
 from discord.ext.commands.cooldowns import BucketType
 
-from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_REJECT, 
+from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_CROSSED_SWORDS, EMOJI_REJECT, 
                     EMOJI_HOURGLASS, NUMBER_EMOJIS)
 
 from .checks.flairing_checks import player_exists
@@ -35,16 +35,15 @@ class Matchmaking(commands.Cog):
 
     async def wait_ranked_emojis(self, message):
         def check(payload):
-            return str(payload.emoji) in [EMOJI_CONFIRM, EMOJI_REJECT] and payload.message_id == message.id and payload.user_id != self.bot.user.id        
+            return str(payload.emoji) in [EMOJI_CROSSED_SWORDS, EMOJI_REJECT] and payload.message_id == message.id and payload.user_id != self.bot.user.id        
         
-        await asyncio.gather(message.add_reaction(EMOJI_CONFIRM), message.add_reaction(EMOJI_REJECT))
+        await asyncio.gather(message.add_reaction(EMOJI_CROSSED_SWORDS), message.add_reaction(EMOJI_REJECT))
         logger.info(f"Ranked message in guild {message.guild} ready.")
         while True:
             raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
-            asyncio.create_task(message.remove_reaction(raw_reaction.emoji, raw_reaction.member))
-            logger.info(f"{raw_reaction.member.nickname()} ha reaccionado con {'ACEPTAR' if str(raw_reaction.emoji) == EMOJI_CONFIRM else 'RECHAZAR'}")
+            asyncio.create_task(message.remove_reaction(raw_reaction.emoji, raw_reaction.member))            
 
-            if str(raw_reaction.emoji) == EMOJI_CONFIRM:
+            if str(raw_reaction.emoji) == EMOJI_CROSSED_SWORDS:
                 asyncio.create_task(self.rankeds(raw_reaction.member, message.channel))
             else:
                 asyncio.create_task(self.cancel(raw_reaction.member, message.guild, "RANKED", message.channel))
@@ -331,6 +330,12 @@ class Matchmaking(commands.Cog):
         return await self.cancel(player, guild, mode, channel)
 
     async def cancel(self, player, guild, mode, channel):
+        # CHECK PLAYER IS CREATED, ELSE DO IT
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}') as response:
+            if response.status != 200:
+                flairing = self.bot.get_cog('Flairing')
+                await flairing.register(player, guild)
+        
         body = {
             'player' : player.id,
             'guild' : guild.id,
@@ -958,18 +963,26 @@ class Matchmaking(commands.Cog):
 
     async def update_list_message(self, guild=None):
 
-        new_message = "__**FRIENDLIES**__\n"
+        new_message = "__**BUSCANDO**__\n"
         async with self.bot.session.get(f'http://127.0.0.1:8000/guilds/{guild.id}/list_message/') as response:
             if response.status == 200:
                 html = await response.text()
                 resp_body = json.loads(html)
 
+                # SEARCHING
                 for tier in resp_body['tiers']:
                     tier_role = guild.get_role(tier['id'])
-                    players = [guild.get_member(player_id) for player_id in tier['players']]
+                    friendlies_players = [guild.get_member(player_id) for player_id in tier['friendlies_players']]
                     
-                    player_names = ", ".join([player.nickname() for player in players])
-                    new_message += f"**{tier_role.name}**:\n```{player_names} ```\n"
+                    ranked_players = [guild.get_member(player_id) for player_id in tier['ranked_players']]                   
+                    player_names = ", ".join([player.nickname() for player in friendlies_players])            
+                    # RANKED SEARCHING
+                    ranked_info = ""
+                    if ranked_players:
+                        ranked_info = " | " if player_names else ""
+                        ranked_info += f"Gente buscando en ranked: {len(ranked_players)}"
+                    
+                    new_message += f"**{tier_role.name}**:\n```{player_names}{ranked_info} \n```\n"
                 
                 if resp_body['confirmation']:
                     new_message += "\n**CONFIRMANDO:**\n"
@@ -988,7 +1001,7 @@ class Matchmaking(commands.Cog):
                 for arena in resp_body['playing']:                    
                     players = [{'name' : guild.get_member(player['id']).nickname(), 'tier': guild.get_role(player['tier']).name} for player in arena]
                     players_text = [f"**{player['name']}** ({player['tier']})" for player in players]
-                    new_message += f"{'**RANKED**:' if arena[0]['mode'] == 'RANKED' else ''}{' vs. '.join(players_text)}\n"
+                    new_message += f"{f'EMOJI_CROSSED_SWORDS ' if arena[0]['mode'] == 'RANKED' else ''}{' vs. '.join(players_text)}\n"
 
                 list_channel = guild.get_channel(resp_body['list_channel'])
                 list_message = await list_channel.fetch_message(resp_body['list_message'])
