@@ -125,6 +125,8 @@ def normalize_character(character_name):
         return 'Sephiroth'
     if char in ('pyra', 'mythra', 'pythra', 'aegis', 'homura', 'hikari', 'homura/hikari'):
         return 'Pyra/Mythra'
+    if char in ('yakuza', 'mishima', 'tekken'):
+        return 'Kazuya'
     
     return False
 
