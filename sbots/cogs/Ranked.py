@@ -796,6 +796,87 @@ class Ranked(commands.Cog):
                 task.cancel()
         await ctx.send(f"Task {name} cancelada.")
     
+
+    @commands.command(aliases=["estadisticas"])
+    @commands.check(player_exists)
+    @commands.guild_only()    
+    async def stats(self, ctx):
+        guild = ctx.guild
+        player = ctx.author
+
+        body = {
+            'guild' : guild.id
+        }
+
+        # GET ROLE
+        async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}/stats/', json=body) as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                regions = resp_body['regions']
+                
+                mains = resp_body['mains']
+                seconds = resp_body['seconds']
+                pockets = resp_body['pockets']
+
+                tier_id = resp_body['tier']
+            else:
+                return await ctx.send("Error al mostrar el perfil. Contacta con un admin.")        
+        
+        # TIER
+        if tier_id:
+            tier = guild.get_role(tier_id)        
+        tier_text = f" ({tier.name})" if tier_id else ""
+        tier_color = tier.color if tier_id else discord.Colour()
+
+        # REGIONS
+        region_title = "Región:" if len(regions) < 2 else "Regiones:"
+        region_text = ""
+        
+        for region_id in regions[:2]:
+            region = guild.get_role(region_id)
+            region_text += f"{region.name} {region.emoji()}\n"
+
+        # CHARACTERS
+        main_title = "Main:" if len(mains) < 2 else "Mains:"
+        main_text = ""
+
+        for main_id in mains:            
+            main = guild.get_role(main_id)            
+            main_text += f"{main.name} ({main.emoji()})\n"
+        
+        second_title = f"Second:" if len(seconds) < 2 else "Seconds:"
+        second_text = u"\u200C"
+
+        for second_id in seconds:
+            second = guild.get_role(second_id)
+            second_text += f"{second.emoji()}  "        
+        
+        pocket_title = f"Pocket:" if len(pockets) < 2 else "Pockets:"        
+        pocket_text = u"\u200C"
+        
+        for pocket_id in pockets:
+            pocket = guild.get_role(pocket_id)
+            pocket_text += f"{pocket.emoji()}  "
+        
+        # EMBED
+        embed = discord.Embed(title=f"**__{player.nickname()}__{tier_text}**", colour=tier_color)
+        embed.set_thumbnail(url=player.avatar_url)
+        embed.set_footer(text="SmashBotSpain", icon_url="https://www.smashbros.com/assets_v2/img/top/hero05_en.jpg")
+
+        if regions:
+            embed.add_field(name=region_title, value=region_text, inline=False)
+        if mains:
+            embed.add_field(name=main_title, value=main_text, inline=False)
+        if seconds:
+            embed.add_field(name=second_title, value=second_text, inline=True)
+        if pockets:
+            embed.add_field(name=pocket_title, value=pocket_text, inline=True)
+        
+        return await ctx.send(embed=embed)
+
+
     @remake.error
     async def remake_error(self, ctx, error):
         if isinstance(error, commands.CheckFailure):

@@ -5,6 +5,8 @@ from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
 
+from django.db.models import Count
+
 from smashbotspain.models import Player, Arena, Rating, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer, Stage
 from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
                                         MainSerializer, RegionSerializer, CharacterSerializer, StageSerializer)
@@ -79,6 +81,38 @@ class PlayerViewSet(viewsets.ModelViewSet):
             player_mmr.save()
         
         return Response({'tier': player.tier(guild).discord_id}, status=status.HTTP_200_OK)
+
+
+    @action(detail=True, methods=['get'])
+    def stats(self, request, discord_id):
+        player = self.get_object()
+        guild = Guild.objects.get(discord_id=request.data['guild'])
+
+        response = {}
+
+        # Game Sets
+        finished_sets = GameSet.objects.filter(players=player).exclude(winner__isnull=True)
+        won_sets = finished_sets.filter(winner=player)
+        lost_sets = finished_sets.exclude(winner=player)
+
+        response['won_sets'] = won_sets.count()
+        response['lost_sets'] = lost_sets.count()
+
+        # Best stage
+        my_games = Game.objects.filter(players=player)
+        won_games = my_games.filter(game_set__winner=player)
+        lost_games = my_games.exclude(game_set__winner=player)
+
+        
+        
+        wins_by_stage = won_games.order_by('stage__name').values('stage__name').annotate(Count('stage'))
+        losses_by_stage = lost_games.order_by('stage__name').values('stage__name').annotate(Count('stage'))
+
+        response['wins_by_stage'] = list(wins_by_stage)
+        response['losses_by_stage'] = list(losses_by_stage)
+
+        
+
 
     @action(detail=True, methods=['get'])
     def profile(self, request, discord_id):
