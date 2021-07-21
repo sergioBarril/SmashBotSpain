@@ -14,6 +14,8 @@ router.register(r'regions', views.RegionViewSet)
 router.register(r'characters', views.CharacterViewSet)
 router.register(r'stages', views.StageViewSet)
 router.register(r'games', views.GameViewSet)
+router.register(r'gamesets', views.GameSetViewSet)
+router.register(r'ratings', views.RatingViewSet)
 
 # The API URLs are now determined automatically by the router.
 # Additionally, we include the login URLs for the browsable API.

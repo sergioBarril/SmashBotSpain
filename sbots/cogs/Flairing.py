@@ -25,26 +25,6 @@ class Flairing(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(aliases=["create_roles", "update_roles"])
-    @commands.has_permissions(administrator=True)
-    async def setup_roles(self, ctx, role_type=None):
-        guild = ctx.guild
-        mode = ctx.invoked_with
-
-        update = (mode == "update_roles")
-        
-        all_roles = await guild.fetch_roles()
-        all_roles_names = [role.name for role in all_roles]
-
-        if role_type is None or role_type == "regions":
-            created, updated = await update_or_create_roles(guild, all_roles, all_roles_names, SPANISH_REGIONS, update)
-            await ctx.send(f"Regiones creadas: {created}. Regiones actualizadas (o dejadas igual): {updated}")
-        if role_type is None or role_type == "characters":
-            created, updated = await update_or_create_roles(guild, all_roles, all_roles_names, SMASH_CHARACTERS, update)
-            await ctx.send(f"Personajes creados: {created}. Personajes actualizados (o dejados igual): {updated}")
-        if role_type is None or role_type == "tiers":
-            created, updated = await update_or_create_roles(guild, all_roles, all_roles_names, DEFAULT_TIERS, update)
-            await ctx.send(f"Tiers creadas: {created}. Tiers actualizadas (o dejadas igual): {updated}")        
     
     @commands.command(aliases=["region", "main", "second", "pocket", "tier"])
     @commands.check(player_exists)
@@ -189,60 +169,6 @@ class Flairing(commands.Cog):
                     logger.error("SET_ROLE ERROR 404")
                     return await ctx.send(f"Error al modificar tus roles.", delete_after=25)
     
-    @commands.command(aliases=['import'])
-    @commands.has_permissions(administrator=True)
-    @commands.guild_only()
-    async def import_roles(self, ctx, *, role_type=None):
-        guild = ctx.guild
-        all_roles = await guild.fetch_roles()
-        
-        name_list = []
-        if role_type.lower() in ('regiones', 'regions'):
-            role_type = 'regions'
-            name_list = SPANISH_REGIONS.keys()
-        
-        elif role_type.lower() in ('personajes', 'chars', 'characters'):
-            role_type = 'characters'
-            name_list = SMASH_CHARACTERS.keys()
-        
-        elif role_type.lower() in ('tiers', 'tier'):
-            role_type = 'tiers'
-            name_list = DEFAULT_TIERS
-
-        if not name_list:
-            return await ctx.send(f"No se puede importar la categoría **{role_type}**.")
-
-        # GET RELEVANT IDS
-        if role_type == 'tiers':
-            relevant_ids = [
-                {'id': role.id, 'weight': DEFAULT_TIERS[role.name]['weight']}
-                for role in all_roles if role.name in DEFAULT_TIERS.keys()
-            ]
-        else:
-            relevant_ids = [role.id for role in all_roles if role.name in name_list]
-        
-        body = {
-            'guild' : guild.id,
-            'roles' : relevant_ids
-        }
-        
-        async with self.bot.session.post(f'http://127.0.0.1:8000/{role_type}/import/', json=body) as response:
-            if response.status == 200:
-                html = await response.text()
-                resp_body = json.loads(html)
-
-                count = resp_body['count']
-                
-                if role_type == 'regions':
-                    count_text = f"{count} región" if count == 1 else f"{count} regiones"
-                elif role_type == 'characters':
-                    count_text = f"{count} personaje" if count == 1 else f"{count} personajes"
-                elif role_type == 'tiers':
-                    count_text = f"{count} tier" if count == 1 else f"{count} tiers"
-
-                await ctx.send(f"Se han creado **{count_text}**.")
-            else:
-                await ctx.send(f"Error con el import.")
 
     @commands.command(aliases=["rol"])
     @commands.check(in_spam_channel)
@@ -361,6 +287,9 @@ class Flairing(commands.Cog):
                 pockets = resp_body['pockets']
 
                 tier_id = resp_body['tier']
+                rating_score = resp_body.get('score')
+                promotion = resp_body.get('promotion')
+            
             else:
                 return await ctx.send("Error al mostrar el perfil. Contacta con un admin.")        
         
@@ -377,6 +306,14 @@ class Flairing(commands.Cog):
         for region_id in regions[:2]:
             region = guild.get_role(region_id)
             region_text += f"{region.name} {region.emoji()}\n"
+
+        # RATING
+        rating_title = "Ranked:"
+        if rating_score:
+            rating_text = f"Puntuación: {rating_score}\n"
+            
+            if promotion:
+                rating_text += f"Promoción: {promotion['wins']}-{promotion['losses']}\n"
 
         # CHARACTERS
         main_title = "Main:" if len(mains) < 2 else "Mains:"
@@ -407,6 +344,8 @@ class Flairing(commands.Cog):
 
         if regions:
             embed.add_field(name=region_title, value=region_text, inline=False)
+        if rating_score:
+            embed.add_field(name=rating_title, value=rating_text, inline=False)
         if mains:
             embed.add_field(name=main_title, value=main_text, inline=False)
         if seconds:
@@ -416,31 +355,6 @@ class Flairing(commands.Cog):
         
         return await ctx.send(embed=embed)
     
-    @commands.command()
-    @commands.has_permissions(administrator=True)
-    @commands.guild_only()
-    async def tier_channel(self, ctx, tier: typing.Optional[discord.Role], channel: typing.Optional[discord.TextChannel]):
-        """
-        Given a tier and a channel, sets the tier's channel.        
-        """
-        guild = ctx.guild
-
-        if tier is None:
-            return await ctx.send("Para utilizar este comando, escribe `.tier_channel @Tier3 #tier-3`, por ejemplo.")
-        
-        if channel is None:
-            channel = ctx.channel
-
-        body = {'channel_id': channel.id}
-
-        async with self.bot.session.patch(f'http://127.0.0.1:8000/tiers/{tier.id}/', json=body) as response:
-            if response.status == 200:
-                html = await response.text()
-                resp_body = json.loads(html)
-                await ctx.send(f"Hecho: a partir de ahora el canal de {tier} será {channel.mention}.")
-            else:
-                await ctx.send("Ha habido un error. ¿Quizá ese canal ya lo está usando otra tier?")
-
     # ***************************
     #       R E G I S T E R
     # ***************************    
@@ -532,16 +446,7 @@ class Flairing(commands.Cog):
         elif isinstance(error, commands.errors.MissingPermissions):
             pass
         else:
-            raise error
-    
-    @tier_channel.error
-    async def role_error(self, ctx, error):
-        if isinstance(error, commands.CheckFailure):
-            pass
-        elif isinstance(error, commands.errors.MissingPermissions):
-            pass
-        else:
-            raise error
+            raise error    
 
     @list_role.error
     async def list_role_error(self, ctx, error):
