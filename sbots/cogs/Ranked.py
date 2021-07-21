@@ -80,15 +80,6 @@ class Ranked(commands.Cog):
         await ctx.channel.send(f"¡**{winner.nickname()}** ha ganado el set por abandono!")
 
         await self.set_end(ctx.channel, resp_body)
-
-    @commands.command()
-    async def leaderboard(self, ctx, tier : discord.Role):
-        updated = await self.update_leaderboard(tier)
-
-        if updated:
-            return await ctx.send(f"La leaderboard de la tier {tier.name} ha sido actualizada.", delete_after=10)
-        else:
-            return await ctx.send(f"No se ha podido actualizar la leaderboard.", delete_after=10)
             
     async def rematch(self, player1, player2, channel, message):
         """
@@ -365,6 +356,7 @@ class Ranked(commands.Cog):
         """
         Handles the end of a set (message sending, tier changes, ratings, etc.) or creating a new game
         """
+        asyncio.current_task().set_name(f"gamesetup-{channel.id}")
         guild = channel.guild
         
         # New scores:
@@ -786,15 +778,6 @@ class Ranked(commands.Cog):
         await ctx.send(f"Remaking game {game_number}...")
         logger.info(f"Remaking game {game_number} for arena between {ctx.author.nickname()} and {other_player.nickname()}")
         asyncio.create_task(self.game_setup(ctx.author, other_player, ctx.channel, game_number))
-
-
-    @commands.command()
-    async def cancel_task(self, ctx, name):
-        tasks = asyncio.all_tasks()
-        for task in tasks:
-            if task.get_name() == name:
-                task.cancel()
-        await ctx.send(f"Task {name} cancelada.")
     
     @remake.error
     async def remake_error(self, ctx, error):

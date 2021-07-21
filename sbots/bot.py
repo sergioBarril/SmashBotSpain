@@ -55,5 +55,6 @@ client.load_extension("cogs.Matchmaking")
 client.load_extension("cogs.HelpCommands")
 client.load_extension("cogs.Flairing")
 client.load_extension("cogs.Ranked")
+client.load_extension("cogs.Admin")
 
 client.run(TOKEN)

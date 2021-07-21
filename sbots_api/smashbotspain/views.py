@@ -6,7 +6,7 @@ from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
 
 from smashbotspain.models import Player, Arena, Rating, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer, Stage
-from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
+from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, RatingSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
                                         MainSerializer, RegionSerializer, CharacterSerializer, StageSerializer)
 
 from smashbotspain.aux_methods.roles import normalize_character
@@ -103,6 +103,18 @@ class PlayerViewSet(viewsets.ModelViewSet):
         # TIER
         tier = player.tiers.filter(guild=guild).first()
         response['tier'] = tier.discord_id if tier else None
+
+        # RATING
+        rating = Rating.objects.filter(guild=guild, player=player).first()
+        if rating:
+            response['score'] = rating.score
+            if rating.promotion_wins is None:
+                response['promotion'] = None
+            else:
+                response['promotion'] = {
+                    'wins' : rating.promotion_wins,
+                    'losses': rating.promotion_losses
+                }            
 
         return Response(response, status=status.HTTP_200_OK)
 
@@ -751,6 +763,171 @@ class PlayerViewSet(viewsets.ModelViewSet):
             'other_player_wins': other_player_wins
         }, status=status.HTTP_200_OK)
 
+    
+    @action(detail=True, methods=['post'])
+    def tier(self, request, discord_id):
+        """
+        Sets the tier of a player
+        """
+        player = self.get_object()
+
+        guild_id = request.data['guild']
+        guild = Guild.objects.filter(discord_id = guild_id).first()
+        if not guild:
+            return Response({'error': 'GUILD_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        tier_id = request.data['tier']
+        tier = Tier.objects.filter(discord_id = tier_id, guild=guild).first()
+        if not tier:
+            return Response({'error': 'TIER_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        rating, created = Rating.objects.get_or_create(player=player, guild=guild)
+        
+        # Remove previous tier
+        if not created:
+            previous_tier = player.tier(guild)
+            if previous_tier:
+                player.tiers.remove(previous_tier)
+        
+        # Set tier
+        player.tiers.add(tier)
+
+        rating.score = tier.threshold
+        rating.promotion_wins = None
+        rating.promotion_losses = None
+        rating.save()
+
+        return Response({
+            'old_tier': previous_tier.discord_id,
+            'tier': player.tier(guild).discord_id,
+            'score': rating.score,
+            'wins': rating.promotion_wins,
+            'losses': rating.promotion_losses
+        }, status=status.HTTP_200_OK)
+
+
+
+class RatingViewSet(viewsets.ModelViewSet):
+    queryset = Rating.objects.all()
+    serializer_class = RatingSerializer
+
+    @action(detail=False, methods=['post'])
+    def score(self, request):
+        """
+        Sets the score rating of a player
+        """
+        # Adding instead of setting
+        add_mode = request.data.get('add', False)
+
+        points = int(request.data['points'])
+        player_id = request.data['player']
+        guild_id = request.data['guild']
+
+        # Check everything exists
+        player = Player.objects.filter(discord_id=player_id).first()
+        if not player:
+            return Response({'error': 'PLAYER_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        guild = Guild.objects.filter(discord_id=guild_id).first()
+        if not guild:
+            return Response({'error': 'GUILD_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        rating = Rating.objects.filter(player=player, guild=guild).first()
+        if not rating:
+            return Response({'error': 'RATING_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        old_rating = rating.score        
+        
+        # Set score
+        if add_mode:
+            rating.score += points
+        else:
+            rating.score = points
+        
+        rating.save()
+
+        return Response({'score': rating.score, 'diff': rating.score - old_rating}, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['post'])
+    def promotion(self, request):
+        """
+        Sets the promotion of a player
+        """
+        promotion_wins = request.data.get('wins')
+        promotion_losses = request.data.get('losses')
+        
+        player_id = request.data['player']
+        guild_id = request.data['guild']
+
+        # Check everything exists
+        player = Player.objects.filter(discord_id=player_id).first()
+        if not player:
+            return Response({'error': 'PLAYER_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        guild = Guild.objects.filter(discord_id=guild_id).first()
+        if not guild:
+            return Response({'error': 'GUILD_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        rating = Rating.objects.filter(player=player, guild=guild).first()
+        if not rating:
+            return Response({'error': 'RATING_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Set promotion score
+        rating.promotion_wins = promotion_wins
+        rating.promotion_losses = promotion_losses
+        rating.save()
+
+        return Response({'wins': rating.promotion_wins, 'losses': rating.promotion_losses}, status=status.HTTP_200_OK)
+        
+
+class GameSetViewSet(viewsets.ModelViewSet):
+    queryset = GameSet.objects.all()
+    serializer_class = GameSetSerializer
+
+    @action(detail=False, methods=['post'])
+    def set_winner(self, request):
+        """
+        Usable by an admin only (checked in Discord).
+        """
+        channel_id = request.data['channel']        
+
+        # FIND THE GAMESET
+        print("start arena")
+        arena = Arena.objects.filter(channel_id=channel_id).first()
+        if not arena:
+            return Response({'error': 'ARENA_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        print("end arena")
+        game_set = arena.gameset_set.first()
+        if not game_set:
+            return Response({'error': 'GAMESET_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+        print("end gameset")
+        # CHECK THE WINNER IS PLAYING THIS SET
+        winner_id = request.data['winner']
+        winner = game_set.players.filter(discord_id=winner_id).first()
+
+        if not winner:
+            return Response({'error': 'PLAYER_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
+
+        print("end player")
+        # UPDATE THE WINNER
+        game_set.winner = winner
+        game_set.save()
+        game_set.finish()
+
+        # DELETE UNFINISHED GAMES
+        game_set.game_set.filter(winner__isnull=True).delete()
+
+        # Update ratings
+        winner_info, loser_info = game_set.update_ratings()
+
+        response = {
+            'set_finished': True,
+            'can_rematch': False,
+            'winner_info': winner_info,
+            'loser_info': loser_info,
+        }
+
+        return Response(response, status=status.HTTP_200_OK)
 
 class GameViewSet(viewsets.ModelViewSet):
     queryset = Game.objects.all()

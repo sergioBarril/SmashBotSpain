@@ -1069,12 +1069,6 @@ class Matchmaking(commands.Cog):
         
         return {'guest': guest, 'hosts': hosts}
     
-    @commands.command()
-    @commands.has_any_role("Dev","admin")
-    async def check_tasks(self, ctx):
-        tasks = asyncio.all_tasks()
-        tasks_name = [task.get_name() for task in tasks]
-        await ctx.send(tasks_name)
 
     # *******************************
     #           C L E A N   U P
@@ -1186,15 +1180,6 @@ class Matchmaking(commands.Cog):
             pass
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send(f"Calma, calma. No puedes volver a usar el comando `.invite` hasta dentro de {round(error.retry_after, 2)}s.")
-        else:
-            raise error
-    
-    @check_tasks.error
-    async def check_tasks_error(self, ctx, error):            
-        if isinstance(error, commands.CheckFailure):
-            pass
-        elif isinstance(error, commands.errors.MissingPermissions):
-            pass
         else:
             raise error
 

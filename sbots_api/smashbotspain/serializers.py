@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework.fields import ReadOnlyField
-from smashbotspain.models import Player, Arena, Stage, Tier, ArenaPlayer, Message, Guild, Character, Main, Region, Game, GameSet, GamePlayer
+from smashbotspain.models import Player, Arena, Rating, Stage, Tier, ArenaPlayer, Message, Guild, Character, Main, Region, Game, GameSet, GamePlayer
 
 from smashbotspain.aux_methods.text import list_with_and
 
@@ -193,4 +193,9 @@ class GuildSerializer(serializers.ModelSerializer):
 class StageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Stage
+        fields = '__all__'
+
+class RatingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Rating
         fields = '__all__'
