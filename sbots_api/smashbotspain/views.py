@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Count
 
 from smashbotspain.models import Player, Arena, Rating, Region, Tier, ArenaPlayer, Message, Guild, Character, Main, GameSet, Game, GamePlayer, Stage
 from smashbotspain.serializers import (GameSerializer, GameSetSerializer, PlayerSerializer, ArenaSerializer, RatingSerializer, TierSerializer, ArenaPlayerSerializer, MessageSerializer, GuildSerializer,
@@ -1234,6 +1235,56 @@ class GuildViewSet(viewsets.ModelViewSet):
             response.append(info)
         
         return Response({'guilds': response}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def beta_reward(self, request, discord_id):
+        """
+        - Deletes ALL gamesets.
+        - Resets ALL Ratings
+        - Gives +20 points to everyone that played 3 or more ranked sets.
+        """
+        guild = self.get_object()
+
+        # Get players with 3 or more ranked sets
+        testers = GameSet.objects.values('players__discord_id').annotate(count=Count('players'))
+        testers = testers.filter(count__gte=3).order_by('-count').all()        
+        
+        tester_response = [
+            {
+                'player' : tester['players__discord_id'],
+                'sets' : tester['count']
+            }
+            for tester in testers
+        ]        
+
+        # Delete ALL Gamesets
+        GameSet.objects.filter(guild=guild).delete()
+
+        # Reset ALL Ratings
+        tester_ids = [tester['players__discord_id'] for tester in testers]
+        tester_players = Player.objects.filter(discord_id__in=tester_ids).all()
+
+        ratings = Rating.objects.filter(guild=guild).all()
+
+        for rating in ratings:
+            player = rating.player
+            player.set_tier(tier=player.tier(guild), guild=guild)
+            
+            # Add extra points
+            if player in tester_players:
+                new_rating = player.get_rating(guild)
+                new_rating.score += 20
+                new_rating.save()
+        
+        # Get Tiers
+        tiers = Tier.objects.filter(guild=guild).all()
+        tier_response = [tier.discord_id for tier in tiers]
+        
+        return Response({
+            'testers': tester_response,
+            'tiers': tier_response
+        }, status=status.HTTP_200_OK)
+
 
 class ArenaViewSet(viewsets.ModelViewSet):
     queryset = Arena.objects.all()

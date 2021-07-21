@@ -283,6 +283,44 @@ class Admin(commands.Cog):
 
 
     @commands.command()
+    @commands.has_permissions(administrator=True)
+    async def beta_reward(self, ctx):
+        """
+        Deletes all gamesets, resets ratings and gives extra points to testers
+        """
+        guild = ctx.guild
+        tester_role = discord.utils.get(guild.roles, name="Beta Tester")
+
+        async with self.bot.session.post(f'http://127.0.0.1:8000/guilds/{guild.id}/beta_reward/') as response:
+            if response.status == 200:
+                html = await response.text()
+                resp_body = json.loads(html)
+
+                testers = resp_body['testers']
+
+                tester_message = "**Testers:**\n"
+                
+                for idx, tester_info in enumerate(testers, start=1):
+                    player = guild.get_member(tester_info['player'])
+                    await player.add_roles(tester_role)
+                    tester_message += f"{idx}. **{player.nickname()}** ({tester_info['sets']})\n"
+                                
+                await ctx.send(tester_message)
+
+                # Update leaderboards
+                tiers = resp_body['tiers']
+                ranked = self.bot.get_cog('Ranked')
+                
+                for tier_id in tiers:
+                    tier_role = guild.get_role(tier_id)
+                    asyncio.create_task(ranked.update_leaderboard(tier_role))            
+            else:
+                logger.error("Error with beta rewards")
+                logger.error(response)
+                return await ctx.send(f"Error al dar los rewards de la beta.")
+
+
+    @commands.command()
     @commands.has_any_role("Dev","Admin")
     async def leaderboard(self, ctx, tier : discord.Role):
         """
