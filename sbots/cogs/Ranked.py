@@ -413,7 +413,7 @@ class Ranked(commands.Cog):
         decided = False
         while not decided:
             def check(payload):
-                return str(payload.emoji) in emojis and payload.message_id == message.id and payload.member in players
+                return str(payload.emoji) in emojis and payload.message_id == message.id and payload.user_id != self.bot.user.id
 
             # Wait for a reaction, and remove the other one
             raw_reaction = await self.bot.wait_for('raw_reaction_add', check=check)
