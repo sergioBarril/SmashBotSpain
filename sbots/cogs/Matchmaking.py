@@ -982,7 +982,10 @@ class Matchmaking(commands.Cog):
                         ranked_info = " | " if player_names else ""
                         ranked_info += f"Gente buscando en ranked: {len(ranked_players)}"
                     
-                    new_message += f"**{tier_role.name}**:\n```{player_names}{ranked_info} \n```\n"
+                    if not player_names and not ranked_info:
+                        ranked_info = "---"
+
+                    new_message += f"**{tier_role.name}**:\n```\n{player_names}{ranked_info} \n```\n"
                 
                 if resp_body['confirmation']:
                     new_message += "\n**CONFIRMANDO:**\n"

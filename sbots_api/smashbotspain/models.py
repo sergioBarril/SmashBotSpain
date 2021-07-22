@@ -237,12 +237,38 @@ class Player(models.Model):
         
         return game
     
-    def can_rematch(self, player):
+    def can_rematch(self, player, search = False):
         """
         Check if can rematch the other player in a ranked game
-        """
-        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        return GameSet.objects.filter(players=player, created_at__gte=today).filter(players=self).count() < 2
+
+        If this method is called while searching, there's a limit of 3h between sets.
+        """        
+        today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)        
+
+        versus_sets = GameSet.objects.filter(players=player, created_at__gte=today).filter(players=self)
+        
+        # Played twice
+        played_twice_today = versus_sets.count() > 1
+        if played_twice_today:
+            return False
+        
+        game_set = versus_sets.first()
+        
+        # Haven't played or actual rematch
+        if not game_set or not search:
+            return True
+
+        # Check if played in last 3 hours
+        last_played_at = game_set.finished_at
+        if not last_played_at:
+            return False
+        
+        time_delta = timezone.now() - last_played_at
+        hours_difference = time_delta.seconds // 3600
+        
+        played_in_last_hours =  hours_difference < 3
+
+        return not played_in_last_hours        
     
     def get_already_matched(self):
         """
@@ -253,7 +279,7 @@ class Player(models.Model):
 
         players = Player.objects.exclude(discord_id=self.discord_id).filter(gameset__in=my_sets)
 
-        can_rematch_ids = [player.id for player in players.all() if self.can_rematch(player)]
+        can_rematch_ids = [player.id for player in players.all() if self.can_rematch(player, search=True)]
 
         players = players.exclude(id__in=can_rematch_ids)
         return players
