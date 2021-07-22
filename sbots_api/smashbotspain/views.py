@@ -75,11 +75,13 @@ class PlayerViewSet(viewsets.ModelViewSet):
             player.tiers.add(tier_roles[0])
         
         # Add MMR
-        if created:
+        tier = player.tier(guild=guild)
+
+        if created and tier:
             player_mmr = Rating(player=player, guild=guild, score=player.tier(guild=guild).threshold)
             player_mmr.save()
         
-        return Response({'tier': player.tier(guild).discord_id}, status=status.HTTP_200_OK)
+        return Response({'tier': tier.discord_id if tier else None}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def profile(self, request, discord_id):
@@ -1472,6 +1474,9 @@ class ArenaViewSet(viewsets.ModelViewSet):
         # Check ranked tier:
         rating = player.get_rating(guild)
         tier = player.tier(guild)
+        
+        if not tier or not rating:
+            return Response({"cant_join" : "NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)
         
         # If in promotion
         if rating.promotion_wins is not None: 

@@ -295,7 +295,7 @@ class Flairing(commands.Cog):
         if tier_id:
             tier = guild.get_role(tier_id)        
         tier_text = f" ({tier.name})" if tier_id else ""
-        tier_color = tier.color if tier_id else discord.Colour()
+        tier_color = tier.color if tier_id else discord.Colour.default()
 
         # REGIONS
         region_title = "Región:" if len(regions) < 2 else "Regiones:"
@@ -406,9 +406,12 @@ class Flairing(commands.Cog):
                 html = await response.text()
                 resp_body = json.loads(html)
 
-                tier = guild.get_role(resp_body['tier'])
-                ranked = self.bot.get_cog('Ranked')
-                asyncio.create_task(ranked.update_leaderboard(tier))
+                tier_id = resp_body.get('tier')
+                
+                if tier_id:
+                    tier = guild.get_role(resp_body['tier'])
+                    ranked = self.bot.get_cog('Ranked')
+                    asyncio.create_task(ranked.update_leaderboard(tier))
                 return True
             else:
                 logger.error("PLAYER CREATION ERROR")

@@ -364,8 +364,13 @@ class Matchmaking(commands.Cog):
                 html = await response.text()
                 resp_body = json.loads(html)
 
+                if mode == "FRIENDLIES":
+                    search_tip = f"No estás en ninguna cola de friendlies, {player.mention}. Usa `.friendlies` para unirte a una."
+                elif mode == "RANKED":
+                    search_tip = f"No estás buscando partida de ranked, {player.mention}. Ve a {channel.mention} y reacciona con el emoji {EMOJI_CROSSED_SWORDS} para buscar."
+
                 error_messages = {
-                    'NOT_SEARCHING' : f"No estás en ninguna cola, {player.mention}. Usa `.friendlies` para unirte a una.",
+                    'NOT_SEARCHING' : search_tip,
                     'CONFIRMATION' : f"Ya has encontrado match. Acéptalo si quieres jugar, recházalo si no.",
                     'ACCEPTED' : f"Has aceptado el match... espera a que tu rival acepte o cancela el match desde ahí.",
                     'PLAYING' : f"¡Ya estás jugando! Cierra la arena con `.ggs`.",
