@@ -269,7 +269,8 @@ class Flairing(commands.Cog):
         player = ctx.author
 
         body = {
-            'guild' : guild.id
+            'guild' : guild.id,
+            'roles': [role.id for role in player.roles]
         }
 
         # GET ROLE

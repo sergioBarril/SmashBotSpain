@@ -87,6 +87,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
     def profile(self, request, discord_id):
         player = self.get_object()
         guild = Guild.objects.get(discord_id=request.data['guild'])
+        roles = request.data.get('roles', [])
         
         response = {}        
         
@@ -104,7 +105,20 @@ class PlayerViewSet(viewsets.ModelViewSet):
         response['pockets'] = [role.character.discord_id for role in pockets]
 
         # TIER
-        tier = player.tiers.filter(guild=guild).first()
+        tier = player.tier(guild=guild)        
+
+        if not tier:
+            tier_roles = []
+            for role_id in roles:
+            # Tier
+                if tier := Tier.objects.filter(discord_id=role_id).first():
+                    tier_roles.append(tier)
+            
+            if tier_roles:
+                tier_roles.sort(key=lambda tier : tier.weight, reverse=True)
+                player.set_tier(tier=tier_roles[0], guild=guild)
+                tier = player.tier(guild=guild)
+        
         response['tier'] = tier.discord_id if tier else None
 
         # RATING

@@ -132,7 +132,7 @@ class Player(models.Model):
         self.save()
 
         # Adjust rating
-        rating = Rating.objects.filter(guild=guild, player=self).first()
+        rating, created = Rating.objects.get_or_create(guild=guild, player=self)        
         rating.promotion_wins = None
         rating.promotion_losses = None
 
