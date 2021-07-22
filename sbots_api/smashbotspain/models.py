@@ -334,7 +334,7 @@ class Rating(models.Model):
 
         return qa/(qa + qb)
     
-    def win(self):        
+    def win(self, other_rating):        
         old_score = self.score
         old_tier = self.player.tier(self.guild)
         new_tier = old_tier
@@ -347,7 +347,9 @@ class Rating(models.Model):
             if next_tier:
                 self.score = int(self.score + 20 + 5 * self.player.get_streak(self.guild))
             else:
-                self.score = int(self.score + 20)
+                # Tier 1 uses ELO
+                prob_win = self.get_probability(other_rating=other_rating)
+                self.score = int(self.score + 42 * (1 - prob_win))
             self.save()
             
             # Start promotion
@@ -359,9 +361,9 @@ class Rating(models.Model):
             if self.promotion_wins == 3:
                 # Tier up
                 promoted = True
-                new_tier = next_tier
-                self.player.set_tier(new_tier, self.guild)
-                self.promotion_wins, self.promotion_losses = None, None
+                # new_tier = next_tier
+                # self.player.set_tier(new_tier, self.guild)
+                # self.promotion_wins, self.promotion_losses = None, None
 
         self.save()
         return {
@@ -383,7 +385,7 @@ class Rating(models.Model):
             }            
         }
     
-    def lose(self):
+    def lose(self, other_rating):
         old_score = self.score
         old_tier = self.player.tier(self.guild)
         new_tier = old_tier
@@ -397,9 +399,11 @@ class Rating(models.Model):
         if self.promotion_losses is None:
             # Score update
             if next_tier:
-                new_score = int(self.score - 20 + 5 * self.player.get_streak(self.guild))
+                new_score = int(self.score - 15 + 5 * self.player.get_streak(self.guild))
             else:
-                new_score = int(self.score - 20) # Tier 1 doesn't get streak points
+                # Tier 1 uses ELO
+                prob_win = self.get_probability(other_rating)
+                new_score = int(self.score - 42 * prob_win)
 
             if new_score < 900:
                 new_score = 900
@@ -410,9 +414,9 @@ class Rating(models.Model):
             if previous_tier and self.score < old_tier.threshold - 100:
                 demoted = True
                 
-                self.player.set_tier(previous_tier, self.guild)
-                self.score = new_score
-                new_tier = previous_tier                
+                # self.player.set_tier(previous_tier, self.guild)
+                # self.score = new_score
+                # new_tier = previous_tier                
                 
         
         # Promotion
@@ -674,8 +678,8 @@ class GameSet(models.Model):
         loser_rating = loser.get_rating(guild=self.guild)
 
         # Update scores, promotions, etc.
-        winner_info = winner_rating.win()
-        loser_info = loser_rating.lose()
+        winner_info = winner_rating.win(other_rating=loser_rating)
+        loser_info = loser_rating.lose(other_rating=winner_rating)
 
         return winner_info, loser_info
 

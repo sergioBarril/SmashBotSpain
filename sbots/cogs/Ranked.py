@@ -230,10 +230,10 @@ class Ranked(commands.Cog):
             await player.add_roles(new_tier)
 
         if is_promoted:
-            return f"¡Felicidades, **{player.nickname()}**! Pasas a ser {new_tier.mention}. Ve al canal a saludar :)"                
+            return f"¡Felicidades, **{player.nickname()}**! Pasas a ser {new_tier.mention}. Ve al canal a saludar :) (El bot está en Beta, así que no has cambiado de Tier)"
         
         if is_demoted:            
-            return f"**{player.nickname()}**, has caído a {new_tier.mention}... ¡pero no te desanimes! Seguro que en breves vuelves a subir."
+            return f"**{player.nickname()}**, has caído a {new_tier.mention}... ¡pero no te desanimes! Seguro que en breves vuelves a subir. (El bot está en Beta, así que no has cambiado de Tier)"
         
         if is_promotion:                    
             promotion_info = info['promotion']
