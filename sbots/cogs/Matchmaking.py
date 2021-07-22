@@ -151,7 +151,7 @@ class Matchmaking(commands.Cog):
     @commands.command(aliases=['freeplays', 'friendlies-here'])
     @commands.check(player_exists)
     @commands.check(in_tier_channel)
-    async def friendlies(self, ctx, tier_num=None):
+    async def friendlies(self, ctx):
         """
         You can join the list of friendlies with this command.
         """
@@ -1004,7 +1004,7 @@ class Matchmaking(commands.Cog):
                 for arena in resp_body['playing']:                    
                     players = [{'name' : guild.get_member(player['id']).nickname(), 'tier': guild.get_role(player['tier']).name} for player in arena]
                     players_text = [f"**{player['name']}** ({player['tier']})" for player in players]
-                    new_message += f"{f'EMOJI_CROSSED_SWORDS ' if arena[0]['mode'] == 'RANKED' else ''}{' vs. '.join(players_text)}\n"
+                    new_message += f"{f'{EMOJI_CROSSED_SWORDS} ' if arena[0]['mode'] == 'RANKED' else ''}{' vs. '.join(players_text)}\n"
 
                 list_channel = guild.get_channel(resp_body['list_channel'])
                 list_message = await list_channel.fetch_message(resp_body['list_message'])

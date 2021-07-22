@@ -1,14 +1,12 @@
 import discord
 import asyncio
-import unicodedata
 import aiohttp
 import json
-import typing
 import logging
 
 
 
-from discord.ext import tasks, commands
+from discord.ext import commands
 
 from .params.matchmaking_params import (TIER_NAMES, EMOJI_CONFIRM)
 from .params.settings import PRIVACY_POLICY

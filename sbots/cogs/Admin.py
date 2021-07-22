@@ -4,22 +4,15 @@ from .params.roles import DEFAULT_TIERS, SMASH_CHARACTERS, SPANISH_REGIONS
 import aiohttp
 import discord
 import asyncio
-import random
-from collections import defaultdict
-from datetime import datetime, timedelta
 import json
 import logging
 
-from discord.ext import tasks, commands
+from discord.ext import commands
 from discord.ext.commands.cooldowns import BucketType
 
-from .params.matchmaking_params import (EMOJI_CONFIRM, EMOJI_LARGE_BLUE_DIAMOND, EMOJI_LARGE_ORANGE_DIAMOND, EMOJI_RECYCLE, EMOJI_REJECT, 
-                    EMOJI_HOURGLASS, EMOJI_SKULL, EMOJI_SMALL_BLUE_DIAMOND, EMOJI_SMALL_ORANGE_DIAMOND, EMOJI_WHITE_MEDIUM_SMALL_SQUARE, NUMBER_EMOJIS, EMOJI_FIRE)
-
-from .checks.flairing_checks import player_exists
 from .checks.matchmaking_checks import (in_arena, in_arena_or_ranked, in_ranked, in_tier_channel)
 
-from .aux_methods.roles import find_role, update_or_create_roles
+from .aux_methods.roles import update_or_create_roles
 
 
 logger = logging.getLogger('discord')
@@ -105,6 +98,7 @@ class Admin(commands.Cog):
     
     @commands.command(aliases=["add_points", "remove_points"])
     @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def set_points(self, ctx, player : discord.Member, points):
         """
         Sets the points of the player.
@@ -164,6 +158,7 @@ class Admin(commands.Cog):
 
     @commands.command(aliases=['remove_promotion'])
     @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def set_promotion(self, ctx, player : discord.Member, wins = None, losses = None):
         """
         Sets the promotion. The player must be in the threshold.
@@ -222,6 +217,7 @@ class Admin(commands.Cog):
                 return await ctx.send("Error")
 
     @commands.command()
+    @commands.guild_only()
     @commands.has_permissions(administrator=True)
     async def set_tier(self, ctx, player : discord.Member, tier : discord.Role):
         guild = ctx.guild
@@ -283,6 +279,7 @@ class Admin(commands.Cog):
 
 
     @commands.command()
+    @commands.guild_only()
     @commands.has_permissions(administrator=True)
     async def beta_reward(self, ctx):
         """
@@ -321,7 +318,8 @@ class Admin(commands.Cog):
 
 
     @commands.command()
-    @commands.has_any_role("Dev","Admin")
+    @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def leaderboard(self, ctx, tier : discord.Role):
         """
         Update the leaderboard of the mentioned tier
@@ -339,7 +337,8 @@ class Admin(commands.Cog):
     # **********************
     
     @commands.command()
-    @commands.has_any_role("Dev","Admin")
+    @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def cancel_task(self, ctx, name):
         """
         Cancel a task with the given name
@@ -351,7 +350,8 @@ class Admin(commands.Cog):
         await ctx.send(f"Task {name} cancelada.")
 
     @commands.command()
-    @commands.has_any_role("Dev","Admin")
+    @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def check_tasks(self, ctx):
         """
         Prints all current tasks (of all guilds)
@@ -396,6 +396,7 @@ class Admin(commands.Cog):
     
     @commands.command(aliases=["create_roles", "update_roles"])
     @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def setup_roles(self, ctx, role_type=None):
         """
         Creates the Discord roles in the guild.
