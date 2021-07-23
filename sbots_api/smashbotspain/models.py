@@ -426,8 +426,8 @@ class Rating(models.Model):
         else:
             self.promotion_losses += 1
             if self.promotion_losses == 3:
-                # Stop promotion and -100 score
-                self.score -= 100
+                # Stop promotion and -30 score
+                self.score -= 30
                 self.promotion_wins, self.promotion_losses = None, None
                 self.save()
                 promotion_cancelled = True
