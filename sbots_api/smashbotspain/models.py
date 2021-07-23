@@ -84,6 +84,9 @@ class Tier(models.Model):
             return False
         return self.discord_id == other.discord_id
     
+    def __hash__(self):
+        return hash(self.discord_id)
+    
     def between(self, min_tier, max_tier):
         return min_tier.weight <= self.weight and self.weight <= max_tier.weight
     
