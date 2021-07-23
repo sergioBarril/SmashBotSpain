@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/3.1/ref/settings/
 """
 import os
+import datetime
 
 from dotenv import load_dotenv
 from pathlib import Path
@@ -98,6 +99,29 @@ DATABASES = {
         'HOST': DB_HOST,
         'PORT': DB_PORT,
     }
+}
+
+
+now = datetime.datetime.now()
+file_name = f"logs/smashbotspain-{now.strftime('%Y%m%d%H%M')}.log"
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': file_name,
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
 }
 
 # Password validation
