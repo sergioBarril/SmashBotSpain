@@ -34,7 +34,8 @@ class Admin(commands.Cog):
 
     @commands.command()    
     @commands.check(in_ranked)
-    @commands.has_any_role("Dev","Admin")
+    @commands.has_permissions(administrator=True)
+    @commands.guild_only()
     async def set_winner(self, ctx, *, winner: discord.Member):
         """
         Gives the win to the player mentioned.
