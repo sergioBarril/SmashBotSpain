@@ -393,7 +393,7 @@ class Ranked(commands.Cog):
         asyncio.current_task().set_name(f"winner-{channel.id}")
 
         players = player1, player2
-        text = f"Ya podéis empezar el Game {game_number}. Cuando acabéis, reaccionad ambos con el personaje del gandor.\n"
+        text = f"Ya podéis empezar el Game {game_number}. Cuando acabéis, reaccionad ambos con el personaje del ganador.\n"
         text += "__**GANADOR**__\n"
         text += "\n".join([f"{i + 1}. {player_info['player'].nickname()} {player_info['char_role'].emoji()}" for i, player_info in enumerate(players_info)])
         
