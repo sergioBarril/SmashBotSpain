@@ -307,7 +307,9 @@ class Player(models.Model):
         streak = 0
         
         for game_set in last_sets:
-            if game_set.winner == self and streak >= 0:
+            if game_set.winner is None:
+                continue
+            elif game_set.winner == self and streak >= 0:
                 streak += 1
             elif game_set.winner != self and streak <= 0:
                 streak -= 1
