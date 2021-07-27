@@ -481,18 +481,33 @@ class Ranked(commands.Cog):
         if is_first:
             stages = [stage for stage in stages if stage.get('type', '') == 'STARTER']
 
-        def get_stage_text(next_player, open_stages, mode):
+        def get_stage_text(next_player, open_stages, mode, number):
             """
             Returns the text that the message should be changed to.
             """
-            action = "banear" if mode == "BAN" else "pickear"            
+            action = "banear" if mode == "BAN" else "pickear"
+            number_of_bans_text = f" {number} escenarios" if number > 1 else ""
 
-            text = f"Le toca **{action.upper()}** a {next_player.mention}. Reacciona con el número de stage que quieres {action.lower()}.\n"
+            text = f"Le toca **{action.upper()}**{number_of_bans_text} a {next_player.mention}. Reacciona con el número de stage que quieres {action.lower()}.\n"
             text += "\n".join([f"{r'~~' if stage not in open_stages else ''}{i + 1}.\
                 {stage['emoji']} {stage['name']}{r'~~' if stage not in open_stages else ''}"
                 for i, stage in enumerate(stages)])
             return text
 
+        def stages_to_ban(ban_order, i):
+            """
+            Given a list with the stage_ban order and the current step index,
+            returns the number of stages that have to be banned.
+            """ 
+            n = len(ban_order)       
+            current_player = ban_order[i]
+            streak = 0            
+            
+            while i < n and ban_order[i] == current_player:
+                streak += 1
+                i += 1
+            return streak
+        
         # Decide who bans first
         ban_order = []
         
@@ -510,7 +525,8 @@ class Ranked(commands.Cog):
         open_emojis = list(NUMBER_EMOJIS[:len(open_stages)])
 
         # Send bans message
-        message = await channel.send(get_stage_text(first_ban, open_stages, mode="BAN"))
+        number_of_bans = stages_to_ban(ban_order, 0)
+        message = await channel.send(get_stage_text(first_ban, open_stages, mode="BAN", number=number_of_bans))
 
         # React to message
         emoji_tasks = [asyncio.create_task(message.add_reaction(emoji)) for emoji in open_emojis]
@@ -540,12 +556,13 @@ class Ranked(commands.Cog):
                 mode = "PICK" if idx + 2 == len(ban_order) and not is_first else "BAN"
                 
                 # Update message
-                text = get_stage_text(next_player, open_stages, mode=mode)                
+                number_of_bans = stages_to_ban(ban_order, idx + 1)
+                text = get_stage_text(next_player, open_stages, mode=mode, number=number_of_bans)                
                 await message.edit(content=text)
             else:
                 if not mode:
-                    mode = "BAN"
-                text = get_stage_text(ban_order[-1], open_stages, mode=mode)
+                    mode = "BAN"                
+                text = get_stage_text(ban_order[-1], open_stages, mode=mode, number=1)
                 await message.edit(content=text)
         
         if is_first:
