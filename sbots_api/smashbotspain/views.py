@@ -1251,8 +1251,7 @@ class GuildViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def beta_reward(self, request, discord_id):
         """
-        - Deletes ALL gamesets.
-        - Resets ALL Ratings
+        - Resets ALL Ratings lower than their threshold
         - Gives +20 points to everyone that played 3 or more ranked sets.
         """
         guild = self.get_object()
@@ -1269,8 +1268,6 @@ class GuildViewSet(viewsets.ModelViewSet):
             for tester in testers
         ]        
 
-        # Delete ALL Gamesets
-        GameSet.objects.filter(guild=guild).delete()
 
         # Reset ALL Ratings
         tester_ids = [tester['players__discord_id'] for tester in testers]
@@ -1280,7 +1277,10 @@ class GuildViewSet(viewsets.ModelViewSet):
 
         for rating in ratings:
             player = rating.player
-            player.set_tier(tier=player.tier(guild), guild=guild)
+            tier = player.tier(guild)
+
+            if rating.score < tier.threshold:
+                player.set_tier(tier=tier, guild=guild)
             
             # Add extra points
             if player in tester_players:
