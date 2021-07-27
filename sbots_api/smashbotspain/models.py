@@ -248,12 +248,18 @@ class Player(models.Model):
         """        
         today = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)        
 
-        versus_sets = GameSet.objects.filter(players=player, created_at__gte=today).filter(players=self)
+        versus_sets = GameSet.objects.filter(players=player, created_at__gte=today).filter(players=self).order_by('-finished_at')
         
-        # Played twice
-        played_twice_today = versus_sets.count() > 1
-        if played_twice_today:
+        # Played three times or more
+        times_played = versus_sets.count()        
+        if times_played > 2:
             return False
+        # Played twice, allow only if 1-1
+        elif times_played == 2:
+            is_even = versus_sets.first().winner != versus_sets.last().winner
+
+            if not is_even:
+                return False            
         
         game_set = versus_sets.first()
         

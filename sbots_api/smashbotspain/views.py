@@ -908,24 +908,20 @@ class GameSetViewSet(viewsets.ModelViewSet):
         """
         channel_id = request.data['channel']        
 
-        # FIND THE GAMESET
-        print("start arena")
+        # FIND THE GAMESET        
         arena = Arena.objects.filter(channel_id=channel_id).first()
         if not arena:
-            return Response({'error': 'ARENA_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
-        print("end arena")
+            return Response({'error': 'ARENA_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)        
         game_set = arena.gameset_set.first()
         if not game_set:
-            return Response({'error': 'GAMESET_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
-        print("end gameset")
+            return Response({'error': 'GAMESET_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)        
         # CHECK THE WINNER IS PLAYING THIS SET
         winner_id = request.data['winner']
         winner = game_set.players.filter(discord_id=winner_id).first()
 
         if not winner:
             return Response({'error': 'PLAYER_NOT_FOUND'}, status=status.HTTP_404_NOT_FOUND)
-
-        print("end player")
+        
         # UPDATE THE WINNER
         game_set.winner = winner
         game_set.save()
