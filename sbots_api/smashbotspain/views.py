@@ -306,7 +306,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
                 "player_one" : arena.created_by.discord_id,
                 "player_two" : player.discord_id,
                 "messages" : [{'id': message.id, 'channel': message.channel_id} for message in arena_messages]
-            }, status=status.HTTP_201_CREATED)
+            }, status=status.HTTP_200_OK)
         else:
             ranked_arena = Arena.objects.filter(created_by=player, mode="RANKED").first()            
             
