@@ -372,9 +372,9 @@ class Rating(models.Model):
             if self.promotion_wins == 3:
                 # Tier up
                 promoted = True
-                # new_tier = next_tier
-                # self.player.set_tier(new_tier, self.guild)
-                # self.promotion_wins, self.promotion_losses = None, None
+                new_tier = next_tier
+                self.player.set_tier(new_tier, self.guild)
+                self.promotion_wins, self.promotion_losses = None, None
 
         self.save()
         return {
@@ -425,9 +425,9 @@ class Rating(models.Model):
             if previous_tier and self.score < old_tier.threshold - 100:
                 demoted = True
                 
-                # self.player.set_tier(previous_tier, self.guild)
-                # self.score = new_score
-                # new_tier = previous_tier                
+                self.player.set_tier(previous_tier, self.guild)
+                self.score = new_score + 70
+                new_tier = previous_tier
                 
         
         # Promotion
