@@ -331,6 +331,7 @@ class Rating(models.Model):
     score = models.IntegerField(default=1000)
     promotion_wins = models.IntegerField(null=True, blank=True)
     promotion_losses = models.IntegerField(null=True, blank=True)
+    promotion_bonus = models.IntegerField(default=0)
 
 
     def __str__(self):
@@ -369,12 +370,13 @@ class Rating(models.Model):
                 self.promotion_wins, self.promotion_losses = 0, 0                
         else:            
             self.promotion_wins += 1            
-            if self.promotion_wins == 3:
+            if self.promotion_wins + self.promotion_bonus == 3:
                 # Tier up
                 promoted = True
                 new_tier = next_tier
                 self.player.set_tier(new_tier, self.guild)
                 self.promotion_wins, self.promotion_losses = None, None
+                self.promotion_bonus = 0
 
         self.save()
         return {
@@ -428,15 +430,17 @@ class Rating(models.Model):
                 self.player.set_tier(previous_tier, self.guild)
                 self.score = new_score + 70
                 new_tier = previous_tier
+                self.promotion_bonus = 1
                 
         
         # Promotion
         else:
             self.promotion_losses += 1
-            if self.promotion_losses == 3:
+            if self.promotion_losses == 3 + self.promotion_bonus:
                 # Stop promotion and -30 score
                 self.score -= 30
                 self.promotion_wins, self.promotion_losses = None, None
+                self.promotion_bonus = 0
                 self.save()
                 promotion_cancelled = True
        
