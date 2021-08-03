@@ -84,6 +84,7 @@ class Matchmaking(commands.Cog):
         # CHECK PLAYER IS CREATED, ELSE DO IT
         async with self.bot.session.get(f'http://127.0.0.1:8000/players/{player.id}') as response:
             if response.status != 200:
+                logger.info(f"Player with id {player.id} isn't registered. Registering:")
                 flairing = self.bot.get_cog('Flairing')
                 await flairing.register(player, guild)
 
@@ -99,6 +100,7 @@ class Matchmaking(commands.Cog):
 
                     messages = []
                     tier_role = guild.get_role(resp_body['tier'])
+                    logger.info(f"Ranked match found between {player1.nickname()} and {player2.nickname()}.")
                     message = await channel.send(f"¡Match de ranked encontrado en **{tier_role.name}**! Mirad vuestros DMs y confirmad.")
                     messages.append({'id': message.id, 'channel_id': channel.id, 'arena': resp_body['id'], 'mode': 'RANKED'})                    
                     await self.save_messages(messages)
@@ -109,6 +111,7 @@ class Matchmaking(commands.Cog):
                     mention_messages = []
 
                     tier_role = guild.get_role(resp_body['tier'])
+                    logger.info(f"{player.nickname()} hasn't found a ranked match in {tier_role.name}. Searching...")
                     message = await channel.send(f"{tier_role.mention}, ¡hay **alguien** buscando partida ranked! Reacciona al mensaje inicial para buscar partida tú también.")
                     mention_messages.append({'id': message.id, 'channel_id': channel.id, 'arena': resp_body['id'], 'mode': 'RANKED'})
                     
@@ -129,6 +132,7 @@ class Matchmaking(commands.Cog):
                 errors = json.loads(html)
 
                 player_status = errors["cant_join"]
+                logger.warning(f"Player: {player.nickname()} Error: {player_status}")
                 await player.send(error_messages[player_status])
             
             elif response.status == 400:
@@ -142,6 +146,7 @@ class Matchmaking(commands.Cog):
                 }                
                 
                 if error:
+                    logger.warning(f"Player: {player.nickname()} Error: {error}")
                     error_message = error_messages[error]
                     await player.send(error_message)
             return
@@ -622,6 +627,7 @@ class Matchmaking(commands.Cog):
         match = player1, player2
         guild = ctx.guild
         arena = await self.make_arena(ctx.guild, is_ranked)
+        logger.info(f"Arena created")
 
         # Set channel in API
         body = { 'channel_id' : arena.id }
@@ -728,9 +734,11 @@ class Matchmaking(commands.Cog):
                 try:
                     emoji, player = await self.bot.wait_for('reaction_add', timeout=MATCH_TIMEOUT + 5, check=check_message)
                     is_timeout = False
+                    logger.info(f"{player.nickname()} accepted: {str(emoji) == EMOJI_CONFIRM}.")
                 except asyncio.TimeoutError:                
                     emoji = None
                     player = message.channel.recipient
+                    logger.warn(f"Player with id {player.id} has timed out the confirmation.")
                     is_timeout = True                
                 finally:
                     remove_reactions = [message.remove_reaction(EMOJI, self.bot.user) for EMOJI in (EMOJI_CONFIRM, EMOJI_REJECT)]
@@ -750,6 +758,7 @@ class Matchmaking(commands.Cog):
                         #  ACCEPTED, WAITING...
                         if player_accepted and not all_accepted:
                             await player.send("¡Aceptado! Ahora a esperar a tu rival...")
+                            logger.info(f"{player.nickname()} has accepted. Waiting for opponent...")
                             await self.update_list_message(guild=ctx.guild)
                             
                             await asyncio.sleep(CANCEL_TIMEOUT - (time.time() - start_time))

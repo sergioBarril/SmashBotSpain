@@ -108,11 +108,18 @@ file_name = f"logs/smashbotspain-{now.strftime('%Y%m%d%H%M')}.log"
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'timestamp': {
+            'format': '{asctime} {levelname} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
             'filename': file_name,
+            'formatter': 'timestamp'
         },
     },
     'loggers': {
