@@ -157,7 +157,7 @@ class Player(models.Model):
                 return status
         return False
 
-    def search_ranked(self, guild):
+    def search_ranked(self, guild, tier):
         """
         Search compatible ranked arenas.
 
@@ -166,7 +166,7 @@ class Player(models.Model):
         arenas = Arena.objects.filter(guild=guild)
         arenas = arenas.filter(status="SEARCHING")
         arenas = arenas.filter(mode="RANKED")
-        arenas = arenas.filter(tier=self.tier(guild))
+        arenas = arenas.filter(tier=tier)
         arenas = arenas.exclude(created_by=self)
 
         # CHECK REJECTED

@@ -287,8 +287,19 @@ class PlayerViewSet(viewsets.ModelViewSet):
         guild_id = request.data['guild']
         guild = Guild.objects.get(discord_id=guild_id)
 
+        # Check ranked tier:
+        rating = player.get_rating(guild)
+        tier = player.tier(guild)
+        
+        if not tier or not rating:
+            return Response({"cant_join" : "NO_TIER"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # If in promotion
+        if rating.promotion_wins is not None: 
+            tier = tier.next(guild)
 
-        arenas = player.search_ranked(guild=guild)
+
+        arenas = player.search_ranked(guild=guild, tier=tier)
         if arenas: # Join existing arena
             arena = arenas.first()
             arena.add_player(player, "CONFIRMATION")
@@ -1509,7 +1520,7 @@ class ArenaViewSet(viewsets.ModelViewSet):
             return Response(arena_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         # Matchmaking
-        arenas = player.search_ranked(guild=guild)
+        arenas = player.search_ranked(guild=guild, tier=tier)
 
         if arenas: # Join existing arena
             arena = arenas.first()
