@@ -801,9 +801,11 @@ class PlayerViewSet(viewsets.ModelViewSet):
         rating, created = Rating.objects.get_or_create(player=player, guild=guild)
         
         # Remove previous tier
+        previous_tier_id = None
         if not created:
-            previous_tier = player.tier(guild)
+            previous_tier = player.tier(guild)            
             if previous_tier:
+                previous_tier_id = previous_tier.discord_id
                 player.tiers.remove(previous_tier)
         
         # Set tier
@@ -815,7 +817,7 @@ class PlayerViewSet(viewsets.ModelViewSet):
         rating.save()
 
         return Response({
-            'old_tier': previous_tier.discord_id,
+            'old_tier': previous_tier_id,
             'tier': player.tier(guild).discord_id,
             'score': rating.score,
             'wins': rating.promotion_wins,
