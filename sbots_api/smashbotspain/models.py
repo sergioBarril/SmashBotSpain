@@ -267,7 +267,7 @@ class Player(models.Model):
         if not game_set or not search:
             return True
 
-        # Check if played in last 3 hours
+        # Check if played in last hour
         last_played_at = game_set.finished_at
         if not last_played_at:
             return False
@@ -275,9 +275,9 @@ class Player(models.Model):
         time_delta = timezone.now() - last_played_at
         hours_difference = time_delta.seconds // 3600
         
-        played_in_last_hours =  hours_difference < 3
+        played_in_last_hour =  hours_difference < 1
 
-        return not played_in_last_hours        
+        return not played_in_last_hour
     
     def get_already_matched(self):
         """
