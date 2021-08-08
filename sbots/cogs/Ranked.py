@@ -181,6 +181,8 @@ class Ranked(commands.Cog):
                 emoji = EMOJI_FIRE
             elif streak <= -3:
                 emoji = EMOJI_SKULL
+            elif streak == 0:
+                continue
             else:
                 emoji = emoji_dict.get(streak)
 
@@ -335,6 +337,7 @@ class Ranked(commands.Cog):
         stage_ok = await asyncio.create_task(self.stage_strike(player1, player2, channel, is_first, last_winner))
 
         if not stage_ok:
+            logger.error("Stage not ok")
             return False
         
         # Winner
