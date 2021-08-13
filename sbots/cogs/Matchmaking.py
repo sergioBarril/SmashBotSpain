@@ -1122,7 +1122,7 @@ class Matchmaking(commands.Cog):
             if channel_id:
                 arena_channel = guild.get_channel(channel_id)
                 if arena_channel:
-                    arena_channel.delete()
+                    await arena_channel.delete()
             
             # MEMBER
             status = arena.get('status', '')
