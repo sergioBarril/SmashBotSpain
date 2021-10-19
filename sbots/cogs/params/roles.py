@@ -111,7 +111,8 @@ SMASH_CHARACTERS = {
      "Steve": {"emoji" : r"<:steve:821160190056726548>", "color": 0x15C4C4},
      "Sephiroth": {"emoji" : r"<:sephiroth:821160190132224010>", "color": 0xB6BBC7},
      "Pyra/Mythra": {"emoji" : r"<:pyra:821160189813850212>", "color": 0x2AF8D3},
-     "Kazuya" : {"emoji" : r"<:kazuya:865023090458886164>", "color": 0x1A1717}
+     "Kazuya" : {"emoji" : r"<:kazuya:865023090458886164>", "color": 0x1A1717},
+     "Sora" : {"emoji" : r"<:sora:900134746716262410>", "color": 0xF5EB2D}
 }
 
 DEFAULT_TIERS = {
