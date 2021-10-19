@@ -159,8 +159,9 @@ class Ranked(commands.Cog):
         if not players:
             text += "No hay nadie en esta tier... ¡de momento!"
             embed.set_image(url='https://media.giphy.com/media/3oriff4xQ7Oq2TIgTu/giphy.gif')
+            players = []
 
-        for player_info in players:
+        for player_info in players[:30]:
             player = guild.get_member(player_info['id'])
             rating = player_info['rating']
             streak = player_info['streak']
