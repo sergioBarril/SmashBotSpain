@@ -158,10 +158,15 @@ class Ranked(commands.Cog):
         
         if not players:
             text += "No hay nadie en esta tier... ¡de momento!"
-            embed.set_image(url='https://media.giphy.com/media/3oriff4xQ7Oq2TIgTu/giphy.gif')
-            players = []
+            embed.set_image(url='https://media.giphy.com/media/3oriff4xQ7Oq2TIgTu/giphy.gif')            
 
-        for player_info in players[:30]:
+        MAX_LEADERBOARD = 30
+        player_count = 0
+        
+        for player_info in players:
+            if player_count == MAX_LEADERBOARD:
+                break            
+            
             player = guild.get_member(player_info['id'])
 
             if not player:
@@ -201,6 +206,8 @@ class Ranked(commands.Cog):
                 text += f" **[{promotion_wins} - {promotion_losses}]**"
             
             text += "\n"
+
+            player_count += 1
         
 
         embed.add_field(name="Jugadores", value=text, inline=False)
