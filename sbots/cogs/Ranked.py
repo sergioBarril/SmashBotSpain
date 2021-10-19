@@ -163,6 +163,10 @@ class Ranked(commands.Cog):
 
         for player_info in players[:30]:
             player = guild.get_member(player_info['id'])
+
+            if not player:
+                continue
+
             rating = player_info['rating']
             streak = player_info['streak']
             
